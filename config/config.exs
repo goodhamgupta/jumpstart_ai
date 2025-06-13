@@ -10,7 +10,7 @@ import Config
 config :ash_oban, pro?: false
 
 config :jumpstart_ai,
-  ash_domains: []
+  ash_domains: [JumpstartAi.Accounts]
 
 config :jumpstart_ai, Oban,
   engine: Oban.Engines.Basic,
@@ -35,6 +35,8 @@ config :spark,
     remove_parens?: true,
     "Ash.Resource": [
       section_order: [
+        :authentication,
+        :tokens,
         :postgres,
         :resource,
         :code_interface,

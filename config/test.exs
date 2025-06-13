@@ -1,4 +1,6 @@
 import Config
+config :jumpstart_ai, token_signing_secret: "2Ne/TVWeZr5ZdpApMI73IeHJ/moEat5I"
+config :bcrypt_elixir, log_rounds: 1
 config :jumpstart_ai, Oban, testing: :manual
 
 # Configure your database

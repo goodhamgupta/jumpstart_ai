@@ -22,7 +22,8 @@ defmodule JumpstartAi.Application do
       # Start to serve requests, typically the last entry
       {Phoenix.PubSub, name: JumpstartAi.PubSub},
       {Finch, name: JumpstartAi.Finch},
-      JumpstartAiWeb.Endpoint
+      JumpstartAiWeb.Endpoint,
+      {AshAuthentication.Supervisor, [otp_app: :jumpstart_ai]}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

@@ -63,7 +63,7 @@ config :jumpstart_ai, JumpstartAiWeb.Endpoint,
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :jumpstart_ai, dev_routes: true
+config :jumpstart_ai, dev_routes: true, token_signing_secret: "AGPb3ia5tBqR3F9x/Ag7njrg4WdVGRhG"
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
