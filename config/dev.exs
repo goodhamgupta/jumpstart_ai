@@ -65,6 +65,11 @@ config :jumpstart_ai, JumpstartAiWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :jumpstart_ai, dev_routes: true, token_signing_secret: "AGPb3ia5tBqR3F9x/Ag7njrg4WdVGRhG"
 
+config :jumpstart_ai, :google,
+  client_id: "603725889050-b20ikf6do0250n9sfvf439ru1djkifnk.apps.googleusercontent.com",
+  client_secret: "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",
+  redirect_uri: "http://localhost:4000/auth/user/google/callback"
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
 
