@@ -32,6 +32,9 @@ defmodule JumpstartAi.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ash_phoenix, "~> 2.0"},
+      {:usage_rules, "~> 0.1", only: [:dev]},
+      {:ash_ai, [github: "ash-project/ash_ai", override: true]},
       {:ash_authentication_phoenix, "~> 2.0"},
       {:bcrypt_elixir, "~> 3.0"},
       {:picosat_elixir, "~> 0.2"},
