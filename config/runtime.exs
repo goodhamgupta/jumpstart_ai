@@ -1,6 +1,11 @@
 import Config
 config :langchain, openai_key: fn -> System.fetch_env!("OPENAI_API_KEY") end
 
+config :jumpstart_ai,
+  google_client_id: System.fetch_env!("GOOGLE_CLIENT_ID"),
+  google_client_secret: System.fetch_env!("GOOGLE_CLIENT_SECRET"),
+  google_redirect_uri: System.fetch_env!("GOOGLE_REDIRECT_URI")
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
