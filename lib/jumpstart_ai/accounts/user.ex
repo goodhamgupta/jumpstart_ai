@@ -232,7 +232,37 @@ defmodule JumpstartAi.Accounts.User do
       # Generates an authentication token for the user
       change AshAuthentication.GenerateTokenChange
     end
+
+    create :register_with_google do
+      argument :user_info, :map, allow_nil?: false
+      argument :oauth_tokens, :map, allow_nil?: false
+      upsert? true
+      upsert_identity :unique_email
+
+      change AshAuthentication.GenerateTokenChange
+
+      # Required if you have the `identity_resource` configuration enabled.
+      change AshAuthentication.Strategy.OAuth2.IdentityChange
+
+      change fn changeset, _ ->
+        user_info = Ash.Changeset.get_argument(changeset, :user_info)
+
+        Ash.Changeset.change_attributes(changeset, Map.take(user_info, ["email"]))
+      end
+
+      # Required if you're using the password & confirmation strategies
+      upsert_fields []
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+
+      change after_action(fn _changeset, user, _context ->
+               case user.confirmed_at do
+                 nil -> {:error, "Unconfirmed user exists already"}
+                 _ -> {:ok, user}
+               end
+             end)
+    end
   end
+
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
@@ -253,7 +283,7 @@ defmodule JumpstartAi.Accounts.User do
     end
 
     attribute :hashed_password, :string do
-      allow_nil? false
+      allow_nil? true
       sensitive? true
     end
 

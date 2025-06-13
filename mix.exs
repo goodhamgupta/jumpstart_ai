@@ -89,7 +89,8 @@ defmodule JumpstartAi.MixProject do
         "tailwind jumpstart_ai --minify",
         "esbuild jumpstart_ai --minify",
         "phx.digest"
-      ]
+      ],
+      "phx.routes": ["phx.routes", "ash_authentication.phoenix.routes"]
     ]
   end
 end
