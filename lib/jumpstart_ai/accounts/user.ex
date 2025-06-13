@@ -43,6 +43,12 @@ defmodule JumpstartAi.Accounts.User do
           request_password_reset_action_name :request_password_reset_token
         end
       end
+
+      google do
+        client_id JumpstartAi.Secrets
+        redirect_uri JumpstartAi.Secrets
+        client_secret JumpstartAi.Secrets
+      end
     end
   end
 
