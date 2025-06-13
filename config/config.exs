@@ -10,12 +10,12 @@ import Config
 config :ash_oban, pro?: false
 
 config :jumpstart_ai,
-  ash_domains: [JumpstartAi.Accounts]
+  ash_domains: [JumpstartAi.Chat, JumpstartAi.Accounts]
 
 config :jumpstart_ai, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
-  queues: [default: 10],
+  queues: [default: 10, chat_responses: [limit: 10], conversations: [limit: 10]],
   repo: JumpstartAi.Repo,
   plugins: [{Oban.Plugins.Cron, []}]
 
