@@ -123,6 +123,16 @@ defmodule JumpstartAi.Accounts.User do
       # validates the provided email and password and generates a token
       prepare AshAuthentication.Strategy.Password.SignInPreparation
 
+      # trigger email sync for users who haven't synced emails yet
+      prepare fn query, _context ->
+        Ash.Query.after_action(query, fn _query, user, _context ->
+          if not is_nil(user.google_access_token) and (is_nil(user.email_sync_status) or user.email_sync_status == "pending") do
+            AshOban.run_trigger(user, :sync_emails)
+          end
+          {:ok, user}
+        end)
+      end
+
       metadata :token, :string do
         description "A JWT that can be used to authenticate the user."
         allow_nil? false
@@ -149,6 +159,16 @@ defmodule JumpstartAi.Accounts.User do
 
       # validates the provided sign in token and generates a token
       prepare AshAuthentication.Strategy.Password.SignInWithTokenPreparation
+
+      # trigger email sync for users who haven't synced emails yet
+      prepare fn query, _context ->
+        Ash.Query.after_action(query, fn _query, user, _context ->
+          if not is_nil(user.google_access_token) and (is_nil(user.email_sync_status) or user.email_sync_status == "pending") do
+            AshOban.run_trigger(user, :sync_emails)
+          end
+          {:ok, user}
+        end)
+      end
 
       metadata :token, :string do
         description "A JWT that can be used to authenticate the user."
@@ -285,7 +305,12 @@ defmodule JumpstartAi.Accounts.User do
       change after_action(fn _changeset, user, _context ->
                case user.confirmed_at do
                  nil -> {:error, "Unconfirmed user exists already"}
-                 _ -> {:ok, user}
+                 _ -> 
+                   # Trigger email sync for Google OAuth users
+                   if not is_nil(user.google_access_token) and (is_nil(user.email_sync_status) or user.email_sync_status == "pending") do
+                     AshOban.run_trigger(user, :sync_emails)
+                   end
+                   {:ok, user}
                end
              end)
     end

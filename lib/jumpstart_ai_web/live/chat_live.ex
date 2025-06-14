@@ -6,7 +6,7 @@ defmodule JumpstartAiWeb.ChatLive do
     ~H"""
     <div class="drawer md:drawer-open bg-base-200 min-h-screen h-screen w-screen fixed inset-0">
       <input id="ash-ai-drawer" type="checkbox" class="drawer-toggle" />
-      <div class="drawer-content flex flex-col">
+      <div class="drawer-content flex flex-col min-h-screen">
         <div class="navbar bg-base-300 w-full">
           <div class="flex-none md:hidden">
             <label for="ash-ai-drawer" aria-label="open sidebar" class="btn btn-square btn-ghost">
@@ -72,7 +72,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <% end %>
           </div>
         </div>
-        <div class="p-4 border-t border-base-300 flex-shrink-0">
+        <div class="p-4 border-t border-base-300 bg-base-200 flex-shrink-0">
           <.form
             :let={form}
             for={@message_form}
