@@ -52,24 +52,23 @@ defmodule JumpstartAi.Accounts.User do
     end
   end
 
+  postgres do
+    table "users"
+    repo JumpstartAi.Repo
+  end
+
   oban do
     triggers do
       trigger :sync_emails do
         action :sync_gmail_emails
-        scheduler_cron "0 */6 * * *"
-        where expr(not is_nil(google_access_token) and (is_nil(email_sync_status) or email_sync_status == "pending"))
+        where expr(not is_nil(google_access_token))
         worker_read_action :read
         worker_module_name JumpstartAi.Workers.EmailSync
-        scheduler_module_name JumpstartAi.Schedulers.EmailSync
         max_attempts 3
         queue :email_sync
+        scheduler_module_name JumpstartAi.Accounts.User.AshOban.Scheduler.SyncEmails
       end
     end
-  end
-
-  postgres do
-    table "users"
-    repo JumpstartAi.Repo
   end
 
   actions do
@@ -126,9 +125,11 @@ defmodule JumpstartAi.Accounts.User do
       # trigger email sync for users who haven't synced emails yet
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and (is_nil(user.email_sync_status) or user.email_sync_status == "pending") do
+          if not is_nil(user.google_access_token) and
+               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
             AshOban.run_trigger(user, :sync_emails)
           end
+
           {:ok, user}
         end)
       end
@@ -163,9 +164,11 @@ defmodule JumpstartAi.Accounts.User do
       # trigger email sync for users who haven't synced emails yet
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and (is_nil(user.email_sync_status) or user.email_sync_status == "pending") do
+          if not is_nil(user.google_access_token) and
+               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
             AshOban.run_trigger(user, :sync_emails)
           end
+
           {:ok, user}
         end)
       end
@@ -283,11 +286,13 @@ defmodule JumpstartAi.Accounts.User do
         user_info = Ash.Changeset.get_argument(changeset, :user_info)
         oauth_tokens = Ash.Changeset.get_argument(changeset, :oauth_tokens)
 
-        expires_at = 
+        expires_at =
           case oauth_tokens["expires_in"] do
             expires_in when is_integer(expires_in) ->
               DateTime.utc_now() |> DateTime.add(expires_in, :second)
-            _ -> nil
+
+            _ ->
+              nil
           end
 
         changeset
@@ -304,12 +309,16 @@ defmodule JumpstartAi.Accounts.User do
 
       change after_action(fn _changeset, user, _context ->
                case user.confirmed_at do
-                 nil -> {:error, "Unconfirmed user exists already"}
-                 _ -> 
+                 nil ->
+                   {:error, "Unconfirmed user exists already"}
+
+                 _ ->
                    # Trigger email sync for Google OAuth users
-                   if not is_nil(user.google_access_token) and (is_nil(user.email_sync_status) or user.email_sync_status == "pending") do
+                   if not is_nil(user.google_access_token) and
+                        (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
                      AshOban.run_trigger(user, :sync_emails)
                    end
+
                    {:ok, user}
                end
              end)
@@ -322,39 +331,58 @@ defmodule JumpstartAi.Accounts.User do
       change fn changeset, _context ->
         user = changeset.data
 
-        case JumpstartAi.GmailService.fetch_user_emails(user, maxResults: 10) do
-          {:ok, emails} ->
-            Enum.each(emails, fn email_data ->
-              JumpstartAi.Accounts.Email
-              |> Ash.Changeset.for_create(:create_from_gmail, %{
-                gmail_id: email_data.id,
-                thread_id: email_data.thread_id,
-                subject: email_data.subject,
-                from_email: extract_email_from_string(email_data.from),
-                from_name: extract_name_from_string(email_data.from),
-                to_email: extract_email_from_string(email_data.to),
-                date: parse_email_date(email_data.date),
-                snippet: email_data.snippet,
-                body_text: email_data.body,
-                label_ids: email_data.label_ids
-              }, actor: user)
-              |> Ash.Changeset.set_argument(:user_id, user.id)
-              |> Ash.create()
-            end)
+        # Check if user has Google access token
+        if is_nil(user.google_access_token) do
+          changeset
+          |> Ash.Changeset.change_attribute(:email_sync_status, "failed")
+          |> Ash.Changeset.add_error(
+            field: :email_sync_status,
+            message: "No Google access token available"
+          )
+        else
+          # Set to processing to indicate work is starting
+          changeset = Ash.Changeset.change_attribute(changeset, :email_sync_status, "processing")
 
-            changeset
-            |> Ash.Changeset.change_attribute(:email_sync_status, "completed")
-            |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
+          case JumpstartAi.GmailService.fetch_user_emails(user, maxResults: 10) do
+            {:ok, emails} ->
+              Enum.each(emails, fn email_data ->
+                JumpstartAi.Accounts.Email
+                |> Ash.Changeset.for_create(
+                  :create_from_gmail,
+                  %{
+                    gmail_id: email_data.id,
+                    thread_id: email_data.thread_id,
+                    subject: email_data.subject,
+                    from_email: extract_email_from_string(email_data.from),
+                    from_name: extract_name_from_string(email_data.from),
+                    to_email: extract_email_from_string(email_data.to),
+                    date: parse_email_date(email_data.date),
+                    snippet: email_data.snippet,
+                    body_text: email_data.body,
+                    label_ids: email_data.label_ids
+                  },
+                  actor: user
+                )
+                |> Ash.Changeset.set_argument(:user_id, user.id)
+                |> Ash.create()
+              end)
 
-          {:error, reason} ->
-            changeset
-            |> Ash.Changeset.change_attribute(:email_sync_status, "failed")
-            |> Ash.Changeset.add_error(field: :email_sync_status, message: "Failed to sync emails: #{inspect(reason)}")
+              changeset
+              |> Ash.Changeset.change_attribute(:email_sync_status, "completed")
+              |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
+
+            {:error, reason} ->
+              changeset
+              |> Ash.Changeset.change_attribute(:email_sync_status, "failed")
+              |> Ash.Changeset.add_error(
+                field: :email_sync_status,
+                message: "Failed to sync emails: #{inspect(reason)}"
+              )
+          end
         end
       end
     end
   end
-
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
@@ -415,10 +443,13 @@ defmodule JumpstartAi.Accounts.User do
   end
 
   defp extract_email_from_string(nil), do: nil
+
   defp extract_email_from_string(email_string) when is_binary(email_string) do
     case Regex.run(~r/<([^>]+)>/, email_string) do
-      [_, email] -> email
-      _ -> 
+      [_, email] ->
+        email
+
+      _ ->
         case Regex.run(~r/([^\s<>]+@[^\s<>]+)/, email_string) do
           [_, email] -> email
           _ -> email_string
@@ -427,6 +458,7 @@ defmodule JumpstartAi.Accounts.User do
   end
 
   defp extract_name_from_string(nil), do: nil
+
   defp extract_name_from_string(email_string) when is_binary(email_string) do
     case Regex.run(~r/^([^<]+)</, email_string) do
       [_, name] -> String.trim(name, ~s("))
@@ -435,9 +467,12 @@ defmodule JumpstartAi.Accounts.User do
   end
 
   defp parse_email_date(nil), do: nil
+
   defp parse_email_date(date_string) when is_binary(date_string) do
     case DateTime.from_iso8601(date_string) do
-      {:ok, datetime, _} -> datetime
+      {:ok, datetime, _} ->
+        datetime
+
       _ ->
         try do
           case Timex.parse(date_string, "{RFC1123}") do
