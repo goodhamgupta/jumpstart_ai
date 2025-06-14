@@ -15,7 +15,7 @@ config :jumpstart_ai,
 config :jumpstart_ai, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
-  queues: [default: 10, chat_responses: [limit: 10], conversations: [limit: 10]],
+  queues: [default: 10, chat_responses: [limit: 10], conversations: [limit: 10], email_sync: [limit: 5]],
   repo: JumpstartAi.Repo,
   plugins: [{Oban.Plugins.Cron, []}]
 

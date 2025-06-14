@@ -4,7 +4,7 @@ defmodule JumpstartAi.Accounts.User do
     domain: JumpstartAi.Accounts,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication]
+    extensions: [AshAuthentication, AshOban]
 
   authentication do
     add_ons do
@@ -48,6 +48,21 @@ defmodule JumpstartAi.Accounts.User do
         client_id JumpstartAi.Secrets
         redirect_uri JumpstartAi.Secrets
         client_secret JumpstartAi.Secrets
+      end
+    end
+  end
+
+  oban do
+    triggers do
+      trigger :sync_emails do
+        action :sync_gmail_emails
+        scheduler_cron "0 */6 * * *"
+        where expr(not is_nil(google_access_token) and (is_nil(email_sync_status) or email_sync_status == "pending"))
+        worker_read_action :read
+        worker_module_name JumpstartAi.Workers.EmailSync
+        scheduler_module_name JumpstartAi.Schedulers.EmailSync
+        max_attempts 3
+        queue :email_sync
       end
     end
   end
@@ -246,13 +261,26 @@ defmodule JumpstartAi.Accounts.User do
 
       change fn changeset, _ ->
         user_info = Ash.Changeset.get_argument(changeset, :user_info)
+        oauth_tokens = Ash.Changeset.get_argument(changeset, :oauth_tokens)
 
-        Ash.Changeset.change_attributes(changeset, Map.take(user_info, ["email"]))
+        expires_at = 
+          case oauth_tokens["expires_in"] do
+            expires_in when is_integer(expires_in) ->
+              DateTime.utc_now() |> DateTime.add(expires_in, :second)
+            _ -> nil
+          end
+
+        changeset
+        |> Ash.Changeset.change_attributes(Map.take(user_info, ["email"]))
+        |> Ash.Changeset.change_attribute(:google_access_token, oauth_tokens["access_token"])
+        |> Ash.Changeset.change_attribute(:google_refresh_token, oauth_tokens["refresh_token"])
+        |> Ash.Changeset.change_attribute(:google_token_expires_at, expires_at)
       end
 
       # Required if you're using the password & confirmation strategies
       upsert_fields []
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+      change set_attribute(:email_sync_status, "pending")
 
       change after_action(fn _changeset, user, _context ->
                case user.confirmed_at do
@@ -260,6 +288,45 @@ defmodule JumpstartAi.Accounts.User do
                  _ -> {:ok, user}
                end
              end)
+    end
+
+    update :sync_gmail_emails do
+      require_atomic? false
+      accept []
+
+      change fn changeset, _context ->
+        user = changeset.data
+
+        case JumpstartAi.GmailService.fetch_user_emails(user, maxResults: 10) do
+          {:ok, emails} ->
+            Enum.each(emails, fn email_data ->
+              JumpstartAi.Accounts.Email
+              |> Ash.Changeset.for_create(:create_from_gmail, %{
+                gmail_id: email_data.id,
+                thread_id: email_data.thread_id,
+                subject: email_data.subject,
+                from_email: extract_email_from_string(email_data.from),
+                from_name: extract_name_from_string(email_data.from),
+                to_email: extract_email_from_string(email_data.to),
+                date: parse_email_date(email_data.date),
+                snippet: email_data.snippet,
+                body_text: email_data.body,
+                label_ids: email_data.label_ids
+              }, actor: user)
+              |> Ash.Changeset.set_argument(:user_id, user.id)
+              |> Ash.create()
+            end)
+
+            changeset
+            |> Ash.Changeset.change_attribute(:email_sync_status, "completed")
+            |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
+
+          {:error, reason} ->
+            changeset
+            |> Ash.Changeset.change_attribute(:email_sync_status, "failed")
+            |> Ash.Changeset.add_error(field: :email_sync_status, message: "Failed to sync emails: #{inspect(reason)}")
+        end
+      end
     end
   end
 
@@ -288,9 +355,73 @@ defmodule JumpstartAi.Accounts.User do
     end
 
     attribute :confirmed_at, :utc_datetime_usec
+
+    attribute :google_access_token, :string do
+      allow_nil? true
+      sensitive? true
+    end
+
+    attribute :google_refresh_token, :string do
+      allow_nil? true
+      sensitive? true
+    end
+
+    attribute :google_token_expires_at, :utc_datetime_usec do
+      allow_nil? true
+    end
+
+    attribute :email_sync_status, :string do
+      allow_nil? true
+    end
+
+    attribute :emails_synced_at, :utc_datetime_usec do
+      allow_nil? true
+    end
+  end
+
+  relationships do
+    has_many :emails, JumpstartAi.Accounts.Email do
+      public? true
+    end
   end
 
   identities do
     identity :unique_email, [:email]
+  end
+
+  defp extract_email_from_string(nil), do: nil
+  defp extract_email_from_string(email_string) when is_binary(email_string) do
+    case Regex.run(~r/<([^>]+)>/, email_string) do
+      [_, email] -> email
+      _ -> 
+        case Regex.run(~r/([^\s<>]+@[^\s<>]+)/, email_string) do
+          [_, email] -> email
+          _ -> email_string
+        end
+    end
+  end
+
+  defp extract_name_from_string(nil), do: nil
+  defp extract_name_from_string(email_string) when is_binary(email_string) do
+    case Regex.run(~r/^([^<]+)</, email_string) do
+      [_, name] -> String.trim(name, ~s("))
+      _ -> nil
+    end
+  end
+
+  defp parse_email_date(nil), do: nil
+  defp parse_email_date(date_string) when is_binary(date_string) do
+    case DateTime.from_iso8601(date_string) do
+      {:ok, datetime, _} -> datetime
+      _ ->
+        try do
+          case Timex.parse(date_string, "{RFC1123}") do
+            {:ok, datetime} -> datetime
+            _ -> nil
+          end
+        rescue
+          _ -> nil
+        end
+    end
   end
 end
