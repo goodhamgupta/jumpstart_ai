@@ -27,14 +27,14 @@ defmodule JumpstartAiWeb.ChatLive do
             </label>
           </div>
           <img
-            src="https://github.com/ash-project/ash_ai/blob/main/logos/ash_ai.png?raw=true"
+            src={~p"/images/logo.svg"}
             alt="Logo"
             class="h-12"
             height="48"
           />
           <div class="mx-2 flex-1 px-2">
             <p :if={@conversation} class="text-lg font-medium">{build_conversation_title_string(@conversation.title)}</p>
-            <p class="text-sm">AshAi</p>
+            <p class="text-sm">JumpstartAI</p>
           </div>
         </div>
         <div class="flex-1 flex flex-col overflow-hidden bg-base-200">

@@ -32,6 +32,7 @@ defmodule JumpstartAi.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:oban_web, "~> 2.0"},
       {:ash_phoenix, "~> 2.0"},
       {:usage_rules, "~> 0.1", only: [:dev]},
       {:ash_ai, [github: "ash-project/ash_ai", override: true]},
