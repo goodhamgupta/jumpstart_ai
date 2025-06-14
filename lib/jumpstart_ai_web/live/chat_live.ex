@@ -127,6 +127,12 @@ defmodule JumpstartAiWeb.ChatLive do
             <% end %>
           </ul>
         </div>
+        <div class="absolute bottom-4 left-4">
+          <a href="/sign-out" class="btn btn-ghost btn-sm">
+            <.icon name="hero-arrow-right-on-rectangle" />
+            Sign Out
+          </a>
+        </div>
       </div>
     </div>
     """

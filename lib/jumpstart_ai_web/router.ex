@@ -44,7 +44,7 @@ defmodule JumpstartAiWeb.Router do
   scope "/", JumpstartAiWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    get "/", PageController, :sign_in
     auth_routes AuthController, JumpstartAi.Accounts.User, path: "/auth"
     sign_out_route AuthController
 
@@ -56,7 +56,9 @@ defmodule JumpstartAiWeb.Router do
                   overrides: [
                     JumpstartAiWeb.AuthOverrides,
                     AshAuthentication.Phoenix.Overrides.Default
-                  ]
+                  ],
+                  sign_in_path: "/sign-in",
+                  success_redirect_path: "/chat"
 
     # Remove this if you do not want to use the reset password feature
     reset_route auth_routes_prefix: "/auth",
