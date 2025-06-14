@@ -32,6 +32,7 @@ defmodule JumpstartAi.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:tidewave, "~> 0.1", only: [:dev]},
       {:oban_web, "~> 2.0"},
       {:ash_phoenix, "~> 2.0"},
       {:usage_rules, "~> 0.1", only: [:dev]},
