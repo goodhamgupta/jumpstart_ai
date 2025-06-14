@@ -4,7 +4,7 @@ defmodule JumpstartAiWeb.ChatLive do
 
   def render(assigns) do
     ~H"""
-    <div class="drawer md:drawer-open bg-base-200 min-h-dvh max-h-dvh">
+    <div class="drawer md:drawer-open bg-base-200 min-h-screen h-screen w-screen fixed inset-0">
       <input id="ash-ai-drawer" type="checkbox" class="drawer-toggle" />
       <div class="drawer-content flex flex-col">
         <div class="navbar bg-base-300 w-full">
@@ -33,11 +33,11 @@ defmodule JumpstartAiWeb.ChatLive do
             height="48"
           />
           <div class="mx-2 flex-1 px-2">
-            <p :if={@conversation}>{build_conversation_title_string(@conversation.title)}</p>
-            <p class="text-xs">AshAi</p>
+            <p :if={@conversation} class="text-lg font-medium">{build_conversation_title_string(@conversation.title)}</p>
+            <p class="text-sm">AshAi</p>
           </div>
         </div>
-        <div class="flex-1 flex flex-col overflow-y-scroll bg-base-200 max-h-[calc(100dvh-8rem)]">
+        <div class="flex-1 flex flex-col overflow-hidden bg-base-200">
           <div
             id="message-container"
             phx-update="stream"
@@ -65,14 +65,14 @@ defmodule JumpstartAiWeb.ChatLive do
                     <.icon name="hero-user-solid" class="block" />
                   </div>
                 </div>
-                <div class="chat-bubble">
+                <div class="chat-bubble text-lg leading-relaxed">
                   <.markdown text={message.text} />
                 </div>
               </div>
             <% end %>
           </div>
         </div>
-        <div class="p-4 border-t h-16">
+        <div class="p-4 border-t border-base-300 flex-shrink-0">
           <.form
             :let={form}
             for={@message_form}
@@ -88,20 +88,20 @@ defmodule JumpstartAiWeb.ChatLive do
                 type="text"
                 phx-mounted={JS.focus()}
                 placeholder="Type your message..."
-                class="input input-primary w-full mb-0"
+                class="input input-primary w-full mb-0 text-lg"
                 autocomplete="off"
               />
             </div>
-            <button type="submit" class="btn btn-primary rounded-full">
+            <button type="submit" class="btn btn-primary rounded-full text-lg">
               <.icon name="hero-paper-airplane" /> Send
             </button>
           </.form>
         </div>
       </div>
 
-      <div class="drawer-side border-r bg-base-300 min-w-72">
+      <div class="drawer-side border-r border-base-content/20 bg-base-300 w-72 h-full">
         <div class="py-4 px-6">
-          <.header class="text-lg mb-4">
+          <.header class="text-xl mb-4 font-semibold">
             Conversations
           </.header>
           <div class="mb-4">
@@ -119,7 +119,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   href={~p"/chat/#{conversation.id}"}
                   phx-click="select_conversation"
                   phx-value-id={conversation.id}
-                  class={"block py-2 px-3 transition border-l-4 pl-2 mb-2 #{if @conversation && @conversation.id == conversation.id, do: "border-primary font-medium", else: "border-transparent"}"}
+                  class={"block py-2 px-3 transition border-l-4 pl-2 mb-2 text-lg #{if @conversation && @conversation.id == conversation.id, do: "border-primary font-medium", else: "border-transparent"}"}
                 >
                   {build_conversation_title_string(conversation.title)}
                 </.link>
