@@ -57,19 +57,6 @@ defmodule JumpstartAi.Accounts.User do
     repo JumpstartAi.Repo
   end
 
-  oban do
-    triggers do
-      trigger :sync_emails do
-        action :sync_gmail_emails
-        where expr(not is_nil(google_access_token))
-        worker_read_action :read
-        worker_module_name JumpstartAi.Workers.EmailSync
-        max_attempts 3
-        queue :email_sync
-        scheduler_module_name JumpstartAi.Accounts.User.AshOban.Scheduler.SyncEmails
-      end
-    end
-  end
 
   actions do
     defaults [:read]
@@ -125,11 +112,10 @@ defmodule JumpstartAi.Accounts.User do
       # trigger email sync for users who haven't synced emails yet
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and
-               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-            AshOban.run_trigger(user, :sync_emails)
+          if not is_nil(user.google_access_token) and 
+             (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id}) |> Oban.insert()
           end
-
           {:ok, user}
         end)
       end
@@ -164,11 +150,10 @@ defmodule JumpstartAi.Accounts.User do
       # trigger email sync for users who haven't synced emails yet
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and
-               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-            AshOban.run_trigger(user, :sync_emails)
+          if not is_nil(user.google_access_token) and 
+             (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id}) |> Oban.insert()
           end
-
           {:ok, user}
         end)
       end
@@ -314,11 +299,10 @@ defmodule JumpstartAi.Accounts.User do
 
                  _ ->
                    # Trigger email sync for Google OAuth users
-                   if not is_nil(user.google_access_token) and
-                        (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-                     AshOban.run_trigger(user, :sync_emails)
+                   if not is_nil(user.google_access_token) and 
+                      (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+                     JumpstartAi.Workers.EmailSync.new(%{user_id: user.id}) |> Oban.insert()
                    end
-
                    {:ok, user}
                end
              end)
