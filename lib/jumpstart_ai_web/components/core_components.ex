@@ -16,8 +16,37 @@ defmodule JumpstartAiWeb.CoreComponents do
   """
   use Phoenix.Component
   use Gettext, backend: JumpstartAiWeb.Gettext
+  import Phoenix.HTML
 
   alias Phoenix.LiveView.JS
+
+  @doc """
+  Renders markdown text as HTML.
+
+  ## Examples
+
+      <.markdown text="# Hello World" />
+      <.markdown text={message.text} />
+
+  """
+  attr :text, :string, required: true
+
+  def markdown(assigns) do
+    ~H"""
+    <div class="markdown-content">
+      <%= raw(markdown_to_html(@text)) %>
+    </div>
+    """
+  end
+
+  defp markdown_to_html(text) when is_binary(text) do
+    case Earmark.as_html(text) do
+      {:ok, html, _} -> html
+      {:error, _html, _errors} -> text
+    end
+  end
+
+  defp markdown_to_html(_), do: ""
 
   @doc """
   Renders a modal.

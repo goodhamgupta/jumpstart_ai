@@ -66,7 +66,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   </div>
                 </div>
                 <div class="chat-bubble">
-                  {message.text}
+                  <.markdown text={message.text} />
                 </div>
               </div>
             <% end %>
