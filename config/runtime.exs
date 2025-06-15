@@ -2,12 +2,12 @@ import Config
 config :langchain, openai_key: fn -> System.fetch_env!("OPENAI_API_KEY") end
 
 config :jumpstart_ai,
-  google_client_id: System.fetch_env!("GOOGLE_CLIENT_ID"),
-  google_client_secret: System.fetch_env!("GOOGLE_CLIENT_SECRET"),
-  google_redirect_uri: System.fetch_env!("GOOGLE_REDIRECT_URI"),
-  hubspot_client_id: System.fetch_env!("HUBSPOT_CLIENT_ID"),
-  hubspot_client_secret: System.fetch_env!("HUBSPOT_CLIENT_SECRET"),
-  hubspot_redirect_uri: System.fetch_env!("HUBSPOT_REDIRECT_URI")
+  google_client_id: System.get_env("GOOGLE_CLIENT_ID") || raise("Missing GOOGLE_CLIENT_ID"),
+  google_client_secret: System.get_env("GOOGLE_CLIENT_SECRET") || raise("Missing GOOGLE_CLIENT_SECRET"),
+  google_redirect_uri: System.get_env("GOOGLE_REDIRECT_URI") || "http://localhost:4000/auth/user/google/callback",
+  hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID") || "test-client-id",
+  hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET") || "test-secret",
+  hubspot_redirect_uri: System.get_env("HUBSPOT_REDIRECT_URI") || "http://localhost:4000/auth/user/hubspot/callback"
 
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the

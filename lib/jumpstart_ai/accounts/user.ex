@@ -6,6 +6,8 @@ defmodule JumpstartAi.Accounts.User do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAuthentication, AshOban]
 
+  require Logger
+
   authentication do
     add_ons do
       confirmation :confirm_new_user do
@@ -273,6 +275,26 @@ defmodule JumpstartAi.Accounts.User do
       ]
 
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+
+      change after_action(fn _changeset, user, _context ->
+               # Schedule HubSpot contact sync for newly connected users
+               Logger.info("HubSpot OAuth - Scheduling sync for user #{user.id}")
+               Logger.info("HubSpot OAuth - User email: #{user.email}")
+               Logger.info("HubSpot OAuth - Has HubSpot token: #{not is_nil(user.hubspot_access_token)}")
+               
+               if not is_nil(user.hubspot_access_token) do
+                 case JumpstartAi.Workers.HubSpotSync.schedule_sync(user.id, "contacts", 10) do
+                   {:ok, job} ->
+                     Logger.info("HubSpot OAuth - Successfully scheduled sync job: #{inspect(job.id)}")
+                   {:error, error} ->
+                     Logger.error("HubSpot OAuth - Failed to schedule sync job: #{inspect(error)}")
+                 end
+               else
+                 Logger.warning("HubSpot OAuth - No HubSpot access token, skipping sync scheduling")
+               end
+
+               {:ok, user}
+             end)
     end
 
     update :update do
@@ -391,6 +413,21 @@ defmodule JumpstartAi.Accounts.User do
         end
       end
     end
+
+    update :sync_hubspot_contacts do
+      description "Sync HubSpot contacts for a user"
+      require_atomic? false
+      accept []
+
+      change after_action(fn _changeset, user, _context ->
+               if not is_nil(user.hubspot_access_token) do
+                 # Schedule HubSpot sync job
+                 JumpstartAi.Workers.HubSpotSync.schedule_sync(user.id, "contacts", 5)
+               end
+
+               {:ok, user}
+             end)
+    end
   end
 
   policies do
@@ -458,6 +495,10 @@ defmodule JumpstartAi.Accounts.User do
     has_many :emails, JumpstartAi.Accounts.Email do
       public? true
     end
+
+    has_many :contacts, JumpstartAi.Accounts.Contact do
+      public? true
+    end
   end
 
   identities do
@@ -507,35 +548,4 @@ defmodule JumpstartAi.Accounts.User do
     end
   end
 
-  # Fetch user info from HubSpot's access token endpoint
-  defp fetch_hubspot_user_info(access_token) do
-    require Logger
-    url = "https://api.hubapi.com/oauth/v1/access-tokens/#{access_token}"
-
-    Logger.info("HubSpot OAuth - Fetching user info from: #{url}")
-
-    case HTTPoison.get(url) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, user_info} ->
-            Logger.info("HubSpot OAuth - Successfully fetched user info: #{inspect(user_info)}")
-            user_info
-
-          {:error, _} ->
-            Logger.error("HubSpot OAuth - Failed to parse user info response")
-            %{}
-        end
-
-      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
-        Logger.error(
-          "HubSpot OAuth - User info request failed with status #{status_code}: #{body}"
-        )
-
-        %{}
-
-      {:error, error} ->
-        Logger.error("HubSpot OAuth - Network error: #{inspect(error)}")
-        %{}
-    end
-  end
 end

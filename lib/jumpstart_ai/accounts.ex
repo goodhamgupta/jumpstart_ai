@@ -6,5 +6,7 @@ defmodule JumpstartAi.Accounts do
     resource JumpstartAi.Accounts.Token
     resource JumpstartAi.Accounts.User
     resource JumpstartAi.Accounts.Email
+    resource JumpstartAi.Accounts.Contact
+    resource JumpstartAi.Accounts.ContactNote
   end
 end
