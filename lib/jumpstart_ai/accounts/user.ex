@@ -8,17 +8,12 @@ defmodule JumpstartAi.Accounts.User do
 
   authentication do
     add_ons do
-      log_out_everywhere do
-        apply_on_password_change? true
-      end
-
       confirmation :confirm_new_user do
         monitor_fields [:email]
         confirm_on_create? true
         confirm_on_update? false
         require_interaction? true
         confirmed_at_field :confirmed_at
-        auto_confirm_actions [:sign_in_with_magic_link, :reset_password_with_token]
         sender JumpstartAi.Accounts.User.Senders.SendNewUserConfirmationEmail
       end
     end
@@ -32,24 +27,13 @@ defmodule JumpstartAi.Accounts.User do
     end
 
     strategies do
-      password :password do
-        identity_field :email
-        hash_provider AshAuthentication.BcryptProvider
-
-        resettable do
-          sender JumpstartAi.Accounts.User.Senders.SendPasswordResetEmail
-          # these configurations will be the default in a future release
-          password_reset_action_name :reset_password_with_token
-          request_password_reset_action_name :request_password_reset_token
-        end
-      end
-
       google do
         client_id JumpstartAi.Secrets
         redirect_uri JumpstartAi.Secrets
         client_secret JumpstartAi.Secrets
 
         authorization_params access_type: "offline",
+                             prompt: "consent",
                              scope:
                                "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly"
       end
@@ -80,157 +64,6 @@ defmodule JumpstartAi.Accounts.User do
       prepare AshAuthentication.Preparations.FilterBySubject
     end
 
-    update :change_password do
-      # Use this action to allow users to change their password by providing
-      # their current password and a new password.
-
-      require_atomic? false
-      accept []
-      argument :current_password, :string, sensitive?: true, allow_nil?: false
-
-      argument :password, :string,
-        sensitive?: true,
-        allow_nil?: false,
-        constraints: [min_length: 8]
-
-      argument :password_confirmation, :string, sensitive?: true, allow_nil?: false
-
-      validate confirm(:password, :password_confirmation)
-
-      validate {AshAuthentication.Strategy.Password.PasswordValidation,
-                strategy_name: :password, password_argument: :current_password}
-
-      change {AshAuthentication.Strategy.Password.HashPasswordChange, strategy_name: :password}
-    end
-
-    read :sign_in_with_password do
-      description "Attempt to sign in using a email and password."
-      get? true
-
-      argument :email, :ci_string do
-        description "The email to use for retrieving the user."
-        allow_nil? false
-      end
-
-      argument :password, :string do
-        description "The password to check for the matching user."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # validates the provided email and password and generates a token
-      prepare AshAuthentication.Strategy.Password.SignInPreparation
-
-      # trigger email sync for users who haven't synced emails yet
-      prepare fn query, _context ->
-        Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and
-               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-            # Schedule job with a small delay to ensure user is fully persisted
-            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
-            |> Oban.insert(schedule_in: 5)
-          end
-
-          {:ok, user}
-        end)
-      end
-
-      metadata :token, :string do
-        description "A JWT that can be used to authenticate the user."
-        allow_nil? false
-      end
-    end
-
-    read :sign_in_with_token do
-      # In the generated sign in components, we validate the
-      # email and password directly in the LiveView
-      # and generate a short-lived token that can be used to sign in over
-      # a standard controller action, exchanging it for a standard token.
-      # This action performs that exchange. If you do not use the generated
-      # liveviews, you may remove this action, and set
-      # `sign_in_tokens_enabled? false` in the password strategy.
-
-      description "Attempt to sign in using a short-lived sign in token."
-      get? true
-
-      argument :token, :string do
-        description "The short-lived sign in token."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # validates the provided sign in token and generates a token
-      prepare AshAuthentication.Strategy.Password.SignInWithTokenPreparation
-
-      # trigger email sync for users who haven't synced emails yet
-      prepare fn query, _context ->
-        Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and
-               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-            # Schedule job with a small delay to ensure user is fully persisted
-            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
-            |> Oban.insert(schedule_in: 5)
-          end
-
-          {:ok, user}
-        end)
-      end
-
-      metadata :token, :string do
-        description "A JWT that can be used to authenticate the user."
-        allow_nil? false
-      end
-    end
-
-    create :register_with_password do
-      description "Register a new user with a email and password."
-
-      argument :email, :ci_string do
-        allow_nil? false
-      end
-
-      argument :password, :string do
-        description "The proposed password for the user, in plain text."
-        allow_nil? false
-        constraints min_length: 8
-        sensitive? true
-      end
-
-      argument :password_confirmation, :string do
-        description "The proposed password for the user (again), in plain text."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # Sets the email from the argument
-      change set_attribute(:email, arg(:email))
-
-      # Hashes the provided password
-      change AshAuthentication.Strategy.Password.HashPasswordChange
-
-      # Generates an authentication token for the user
-      change AshAuthentication.GenerateTokenChange
-
-      # validates that the password matches the confirmation
-      validate AshAuthentication.Strategy.Password.PasswordConfirmationValidation
-
-      metadata :token, :string do
-        description "A JWT that can be used to authenticate the user."
-        allow_nil? false
-      end
-    end
-
-    action :request_password_reset_token do
-      description "Send password reset instructions to a user if they exist."
-
-      argument :email, :ci_string do
-        allow_nil? false
-      end
-
-      # creates a reset token and invokes the relevant senders
-      run {AshAuthentication.Strategy.Password.RequestPasswordReset, action: :get_by_email}
-    end
-
     read :get_by_email do
       description "Looks up a user by their email"
       get? true
@@ -240,38 +73,6 @@ defmodule JumpstartAi.Accounts.User do
       end
 
       filter expr(email == ^arg(:email))
-    end
-
-    update :reset_password_with_token do
-      argument :reset_token, :string do
-        allow_nil? false
-        sensitive? true
-      end
-
-      argument :password, :string do
-        description "The proposed password for the user, in plain text."
-        allow_nil? false
-        constraints min_length: 8
-        sensitive? true
-      end
-
-      argument :password_confirmation, :string do
-        description "The proposed password for the user (again), in plain text."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # validates the provided reset token
-      validate AshAuthentication.Strategy.Password.ResetTokenValidation
-
-      # validates that the password matches the confirmation
-      validate AshAuthentication.Strategy.Password.PasswordConfirmationValidation
-
-      # Hashes the provided password
-      change AshAuthentication.Strategy.Password.HashPasswordChange
-
-      # Generates an authentication token for the user
-      change AshAuthentication.GenerateTokenChange
     end
 
     create :register_with_google do
@@ -319,9 +120,10 @@ defmodule JumpstartAi.Accounts.User do
                    # Trigger email sync for Google OAuth users
                    if not is_nil(user.google_access_token) and
                         (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-                     # Schedule job with a small delay to ensure user is fully persisted
+                     # Schedule job with a longer delay for new users to ensure tokens are properly set
+                     # The EmailSync worker will handle cases where refresh token is missing
                      JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
-                     |> Oban.insert(schedule_in: 5)
+                     |> Oban.insert(schedule_in: 10)
                    end
 
                    {:ok, user}
@@ -370,8 +172,11 @@ defmodule JumpstartAi.Accounts.User do
                     to_email: extract_email_from_string(email_data.to),
                     date: parse_email_date(email_data.date),
                     snippet: email_data.snippet,
-                    body_text: email_data.body,
-                    label_ids: email_data.label_ids
+                    body_text: email_data.body_text,
+                    body_html: email_data.body_html,
+                    label_ids: email_data.label_ids,
+                    attachments: email_data.attachments || [],
+                    mime_type: email_data.mime_type
                   },
                   actor: user,
                   authorize?: false
@@ -412,11 +217,6 @@ defmodule JumpstartAi.Accounts.User do
     attribute :email, :ci_string do
       allow_nil? false
       public? true
-    end
-
-    attribute :hashed_password, :string do
-      allow_nil? true
-      sensitive? true
     end
 
     attribute :confirmed_at, :utc_datetime_usec

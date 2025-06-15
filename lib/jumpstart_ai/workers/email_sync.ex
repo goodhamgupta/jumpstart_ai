@@ -11,7 +11,6 @@ defmodule JumpstartAi.Workers.EmailSync do
 
         needs_sync? =
           not is_nil(user.google_access_token) and
-            not is_nil(user.google_refresh_token) and
             (is_nil(user.emails_synced_at) or user.email_sync_status == "pending")
 
         cond do
@@ -19,29 +18,13 @@ defmodule JumpstartAi.Workers.EmailSync do
             IO.puts("EmailSync – user #{user_id} has no Google access token")
             :ok
 
-          is_nil(user.google_refresh_token) ->
-            IO.puts(
-              "EmailSync – user #{user_id} needs to re-authorize Google access for email sync"
-            )
-
-            user
-            |> Ash.Changeset.for_update(:update, %{email_sync_status: "needs_reauth"},
-              authorize?: false
-            )
-            |> Ash.update()
-            |> case do
-              {:ok, _} ->
-                :ok
-
-              {:error, error} ->
-                IO.inspect(
-                  "EmailSync – failed to update user #{user_id} status: #{inspect(error)}"
-                )
-
-                {:error, error}
+          needs_sync? ->
+            if is_nil(user.google_refresh_token) do
+              IO.puts(
+                "EmailSync – user #{user_id} has no refresh token, but attempting sync with access token"
+              )
             end
 
-          needs_sync? ->
             IO.puts("EmailSync – syncing Gmail for user #{user_id}")
 
             user
@@ -54,6 +37,16 @@ defmodule JumpstartAi.Workers.EmailSync do
 
               {:error, error} ->
                 IO.inspect("EmailSync – sync failed for user #{user_id}: #{inspect(error)}")
+
+                # If sync failed and we don't have a refresh token, set needs_reauth status
+                if is_nil(user.google_refresh_token) do
+                  user
+                  |> Ash.Changeset.for_update(:update, %{email_sync_status: "needs_reauth"},
+                    authorize?: false
+                  )
+                  |> Ash.update()
+                end
+
                 {:error, error}
             end
 

@@ -32,6 +32,8 @@ defmodule JumpstartAi.Accounts.Email do
         :body_text,
         :body_html,
         :label_ids,
+        :attachments,
+        :mime_type,
         :user_id
       ]
 
@@ -114,6 +116,17 @@ defmodule JumpstartAi.Accounts.Email do
       allow_nil? true
       public? true
       default []
+    end
+
+    attribute :attachments, {:array, :map} do
+      allow_nil? true
+      public? true
+      default []
+    end
+
+    attribute :mime_type, :string do
+      allow_nil? true
+      public? true
     end
 
     timestamps()
