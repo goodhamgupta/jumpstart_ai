@@ -15,14 +15,15 @@ defmodule JumpstartAi.Workers.HubSpotSync do
 
     with {:ok, user} <- get_user(user_id),
          {:ok, contacts} <- HubSpotService.fetch_contacts(user) do
-      
-      contacts_synced = 
+      contacts_synced =
         contacts
         |> Enum.map(&sync_contact(user, &1))
         |> Enum.count(fn result -> match?({:ok, _}, result) end)
 
-      Logger.info("HubSpot Sync - Successfully synced #{contacts_synced} contacts for user #{user_id}")
-      
+      Logger.info(
+        "HubSpot Sync - Successfully synced #{contacts_synced} contacts for user #{user_id}"
+      )
+
       # Schedule notes sync for this user
       %{user_id: user_id, sync_type: "notes"}
       |> __MODULE__.new()
@@ -46,12 +47,12 @@ defmodule JumpstartAi.Workers.HubSpotSync do
 
     with {:ok, user} <- get_user(user_id) do
       # Get all contacts for this user
-      contacts = 
+      contacts =
         Contact
         |> Ash.Query.for_read(:get_by_user, %{user_id: user.id})
         |> Ash.read!(authorize?: false)
 
-      notes_synced = 
+      notes_synced =
         contacts
         |> Enum.flat_map(&sync_contact_notes(user, &1))
         |> Enum.count(fn result -> match?({:ok, _}, result) end)
@@ -75,30 +76,43 @@ defmodule JumpstartAi.Workers.HubSpotSync do
 
   defp get_user(user_id) do
     Logger.info("HubSpot Sync - Looking up user with ID: #{inspect(user_id)}")
-    
+
     # Convert string UUID to proper format if needed
-    parsed_user_id = case user_id do
-      id when is_binary(id) ->
-        case Ecto.UUID.cast(id) do
-          {:ok, uuid} -> uuid
-          :error -> 
-            Logger.error("HubSpot Sync - Invalid UUID format: #{inspect(id)}")
-            id
-        end
-      id -> id
-    end
-    
+    parsed_user_id =
+      case user_id do
+        id when is_binary(id) ->
+          case Ecto.UUID.cast(id) do
+            {:ok, uuid} ->
+              uuid
+
+            :error ->
+              Logger.error("HubSpot Sync - Invalid UUID format: #{inspect(id)}")
+              id
+          end
+
+        id ->
+          id
+      end
+
     Logger.info("HubSpot Sync - Parsed user ID: #{inspect(parsed_user_id)}")
-    
-    case User |> Ash.Query.for_read(:get_by_id, %{id: parsed_user_id}) |> Ash.read_one(authorize?: false) do
-      {:ok, user} when not is_nil(user) -> 
+
+    case User
+         |> Ash.Query.for_read(:get_by_id, %{id: parsed_user_id})
+         |> Ash.read_one(authorize?: false) do
+      {:ok, user} when not is_nil(user) ->
         Logger.info("HubSpot Sync - Found user: #{user.email}")
-        Logger.info("HubSpot Sync - User has HubSpot token: #{not is_nil(user.hubspot_access_token)}")
+
+        Logger.info(
+          "HubSpot Sync - User has HubSpot token: #{not is_nil(user.hubspot_access_token)}"
+        )
+
         {:ok, user}
-      {:ok, nil} -> 
+
+      {:ok, nil} ->
         Logger.error("HubSpot Sync - User not found with ID: #{inspect(parsed_user_id)}")
         {:error, :user_not_found}
-      {:error, error} -> 
+
+      {:error, error} ->
         Logger.error("HubSpot Sync - Error reading user: #{inspect(error)}")
         {:error, error}
     end
@@ -112,11 +126,14 @@ defmodule JumpstartAi.Workers.HubSpotSync do
     |> Ash.create(authorize?: false)
     |> case do
       {:ok, contact} ->
-        Logger.debug("HubSpot Sync - Synced contact #{hubspot_contact.hubspot_id}")
+        Logger.debug("HubSpot Sync - Synced contact #{hubspot_contact.external_id}")
         {:ok, contact}
 
       {:error, error} ->
-        Logger.error("HubSpot Sync - Failed to sync contact #{hubspot_contact.hubspot_id}: #{inspect(error)}")
+        Logger.error(
+          "HubSpot Sync - Failed to sync contact #{hubspot_contact.external_id}: #{inspect(error)}"
+        )
+
         {:error, error}
     end
   end
@@ -125,14 +142,14 @@ defmodule JumpstartAi.Workers.HubSpotSync do
     # For now, we'll implement basic note syncing
     # In a real implementation, you would fetch notes from HubSpot's engagements API
     # This is a placeholder that creates a summary note for each contact
-    
+
     if contact.notes_summary && String.length(contact.notes_summary) > 0 do
       note_data = %{
         contact_id: contact.id,
         content: "Contact summary: #{contact.notes_summary}",
         note_type: "SUMMARY",
-        hubspot_created_at: contact.hubspot_created_at,
-        hubspot_updated_at: contact.hubspot_updated_at
+        external_created_at: contact.external_created_at,
+        external_updated_at: contact.external_updated_at
       }
 
       ContactNote
@@ -140,11 +157,14 @@ defmodule JumpstartAi.Workers.HubSpotSync do
       |> Ash.create(authorize?: false)
       |> case do
         {:ok, note} ->
-          Logger.debug("HubSpot Sync - Created summary note for contact #{contact.hubspot_id}")
+          Logger.debug("HubSpot Sync - Created summary note for contact #{contact.external_id}")
           [{:ok, note}]
 
         {:error, error} ->
-          Logger.error("HubSpot Sync - Failed to create note for contact #{contact.hubspot_id}: #{inspect(error)}")
+          Logger.error(
+            "HubSpot Sync - Failed to create note for contact #{contact.external_id}: #{inspect(error)}"
+          )
+
           [{:error, error}]
       end
     else

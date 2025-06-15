@@ -19,8 +19,8 @@ defmodule JumpstartAi.Accounts.ContactNote do
         :hubspot_note_id,
         :content,
         :note_type,
-        :hubspot_created_at,
-        :hubspot_updated_at
+        :external_created_at,
+        :external_updated_at
       ]
     end
 
@@ -31,19 +31,19 @@ defmodule JumpstartAi.Accounts.ContactNote do
 
       change fn changeset, _context ->
         note_data = Ash.Changeset.get_argument(changeset, :hubspot_note_data)
-        
+
         changeset
         |> Ash.Changeset.change_attribute(:hubspot_note_id, note_data.hubspot_note_id)
         |> Ash.Changeset.change_attribute(:content, note_data.content)
         |> Ash.Changeset.change_attribute(:note_type, note_data.note_type || "NOTE")
-        |> Ash.Changeset.change_attribute(:hubspot_created_at, note_data.created_at)
-        |> Ash.Changeset.change_attribute(:hubspot_updated_at, note_data.updated_at)
+        |> Ash.Changeset.change_attribute(:external_created_at, note_data.created_at)
+        |> Ash.Changeset.change_attribute(:external_updated_at, note_data.updated_at)
       end
 
       upsert_fields [
         :content,
         :note_type,
-        :hubspot_updated_at
+        :external_updated_at
       ]
     end
 
@@ -51,7 +51,7 @@ defmodule JumpstartAi.Accounts.ContactNote do
       accept [
         :content,
         :note_type,
-        :hubspot_updated_at
+        :external_updated_at
       ]
     end
 
@@ -105,12 +105,12 @@ defmodule JumpstartAi.Accounts.ContactNote do
       default "NOTE"
     end
 
-    attribute :hubspot_created_at, :utc_datetime_usec do
+    attribute :external_created_at, :utc_datetime_usec do
       allow_nil? true
       public? true
     end
 
-    attribute :hubspot_updated_at, :utc_datetime_usec do
+    attribute :external_updated_at, :utc_datetime_usec do
       allow_nil? true
       public? true
     end
@@ -127,5 +127,4 @@ defmodule JumpstartAi.Accounts.ContactNote do
   identities do
     identity :unique_hubspot_note, [:contact_id, :hubspot_note_id]
   end
-
 end

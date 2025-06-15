@@ -33,7 +33,7 @@ defmodule JumpstartAi.GmailService do
   @doc """
   Streams emails in batches, processing and yielding each batch as it's fetched.
   This allows for processing emails in smaller chunks instead of loading all into memory.
-  
+
   Options:
   - batch_size: Number of emails to fetch per batch (default: 50)
   - max_results: Maximum total emails to fetch (default: 500)
@@ -43,58 +43,73 @@ defmodule JumpstartAi.GmailService do
     batch_size = Keyword.get(opts, :batch_size, 50)
     max_results = Keyword.get(opts, :max_results, 500)
     process_fn = Keyword.get(opts, :process_fn, fn batch -> {:ok, batch} end)
-    
+
     stream_emails_with_pagination(user, process_fn, batch_size, max_results, nil, 0)
   end
-  
-  defp stream_emails_with_pagination(user, process_fn, batch_size, max_results, page_token, processed_count) do
+
+  defp stream_emails_with_pagination(
+         user,
+         process_fn,
+         batch_size,
+         max_results,
+         page_token,
+         processed_count
+       ) do
     # Calculate how many emails to fetch in this batch
     remaining = max_results - processed_count
     current_batch_size = min(batch_size, remaining)
-    
+
     if current_batch_size <= 0 do
       {:ok, processed_count}
     else
       # Build request options with pagination
       opts = [maxResults: current_batch_size]
       opts = if page_token, do: Keyword.put(opts, :pageToken, page_token), else: opts
-      
+
       case GmailClient.fetch_emails(user, opts) do
         {:ok, %{"messages" => messages, "nextPageToken" => next_token}} when is_list(messages) ->
           case process_batch_of_emails(user, messages, process_fn) do
             {:ok, batch_count} ->
               new_processed_count = processed_count + batch_count
-              
+
               # Continue with next page if we have more to fetch and there's a next page token
               if new_processed_count < max_results and next_token do
-                stream_emails_with_pagination(user, process_fn, batch_size, max_results, next_token, new_processed_count)
+                stream_emails_with_pagination(
+                  user,
+                  process_fn,
+                  batch_size,
+                  max_results,
+                  next_token,
+                  new_processed_count
+                )
               else
                 {:ok, new_processed_count}
               end
-              
+
             {:error, reason} ->
               {:error, reason}
           end
-          
+
         {:ok, %{"messages" => messages}} when is_list(messages) ->
           # No more pages available
           case process_batch_of_emails(user, messages, process_fn) do
             {:ok, batch_count} ->
               {:ok, processed_count + batch_count}
+
             {:error, reason} ->
               {:error, reason}
           end
-          
+
         {:ok, _response} ->
           # No messages found
           {:ok, processed_count}
-          
+
         {:error, reason} ->
           {:error, reason}
       end
     end
   end
-  
+
   defp process_batch_of_emails(user, messages, process_fn) do
     email_details =
       messages
@@ -105,7 +120,7 @@ defmodule JumpstartAi.GmailService do
         end
       end)
       |> Enum.reject(&is_nil/1)
-    
+
     case process_fn.(email_details) do
       {:ok, _result} -> {:ok, length(email_details)}
       {:error, reason} -> {:error, reason}

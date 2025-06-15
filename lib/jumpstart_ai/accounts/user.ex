@@ -37,7 +37,7 @@ defmodule JumpstartAi.Accounts.User do
         authorization_params access_type: "offline",
                              prompt: "consent",
                              scope:
-                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly"
+                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/contacts.readonly"
       end
 
       oauth2 :hubspot do
@@ -126,6 +126,7 @@ defmodule JumpstartAi.Accounts.User do
       upsert_fields []
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
       change set_attribute(:email_sync_status, "pending")
+      change set_attribute(:contact_sync_status, "pending")
 
       change after_action(fn _changeset, user, _context ->
                case user.confirmed_at do
@@ -140,6 +141,14 @@ defmodule JumpstartAi.Accounts.User do
                      # The EmailSync worker will handle cases where refresh token is missing
                      JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
                      |> Oban.insert(schedule_in: 10)
+                   end
+
+                   # Trigger contact sync for Google OAuth users
+                   if not is_nil(user.google_access_token) and
+                        (is_nil(user.contacts_synced_at) or user.contact_sync_status == "pending") do
+                     # Schedule contact sync job
+                     JumpstartAi.Workers.ContactSync.new(%{user_id: user.id})
+                     |> Oban.insert(schedule_in: 15)
                    end
 
                    {:ok, user}
@@ -280,17 +289,27 @@ defmodule JumpstartAi.Accounts.User do
                # Schedule HubSpot contact sync for newly connected users
                Logger.info("HubSpot OAuth - Scheduling sync for user #{user.id}")
                Logger.info("HubSpot OAuth - User email: #{user.email}")
-               Logger.info("HubSpot OAuth - Has HubSpot token: #{not is_nil(user.hubspot_access_token)}")
+
+               Logger.info(
+                 "HubSpot OAuth - Has HubSpot token: #{not is_nil(user.hubspot_access_token)}"
+               )
 
                if not is_nil(user.hubspot_access_token) do
                  case JumpstartAi.Workers.HubSpotSync.schedule_sync(user.id, "contacts", 10) do
                    {:ok, job} ->
-                     Logger.info("HubSpot OAuth - Successfully scheduled sync job: #{inspect(job.id)}")
+                     Logger.info(
+                       "HubSpot OAuth - Successfully scheduled sync job: #{inspect(job.id)}"
+                     )
+
                    {:error, error} ->
-                     Logger.error("HubSpot OAuth - Failed to schedule sync job: #{inspect(error)}")
+                     Logger.error(
+                       "HubSpot OAuth - Failed to schedule sync job: #{inspect(error)}"
+                     )
                  end
                else
-                 Logger.warning("HubSpot OAuth - No HubSpot access token, skipping sync scheduling")
+                 Logger.warning(
+                   "HubSpot OAuth - No HubSpot access token, skipping sync scheduling"
+                 )
                end
 
                {:ok, user}
@@ -304,6 +323,7 @@ defmodule JumpstartAi.Accounts.User do
         :google_access_token,
         :google_token_expires_at,
         :email_sync_status,
+        :contact_sync_status,
         :hubspot_access_token,
         :hubspot_refresh_token,
         :hubspot_token_expires_at,
@@ -372,24 +392,25 @@ defmodule JumpstartAi.Accounts.User do
           # Define the process function that will be called for each batch of emails
           process_batch_fn = fn emails ->
             # Convert email data to the format expected by the Email resource
-            email_inputs = Enum.map(emails, fn email_data ->
-              %{
-                user_id: user.id,
-                gmail_id: email_data.id,
-                thread_id: email_data.thread_id,
-                subject: email_data.subject,
-                from_email: extract_email_from_string(email_data.from),
-                from_name: extract_name_from_string(email_data.from),
-                to_email: extract_email_from_string(email_data.to),
-                date: parse_email_date(email_data.date),
-                snippet: email_data.snippet,
-                body_text: email_data.body_text,
-                body_html: email_data.body_html,
-                label_ids: email_data.label_ids,
-                attachments: email_data.attachments || [],
-                mime_type: email_data.mime_type
-              }
-            end)
+            email_inputs =
+              Enum.map(emails, fn email_data ->
+                %{
+                  user_id: user.id,
+                  gmail_id: email_data.id,
+                  thread_id: email_data.thread_id,
+                  subject: email_data.subject,
+                  from_email: extract_email_from_string(email_data.from),
+                  from_name: extract_name_from_string(email_data.from),
+                  to_email: extract_email_from_string(email_data.to),
+                  date: parse_email_date(email_data.date),
+                  snippet: email_data.snippet,
+                  body_text: email_data.body_text,
+                  body_html: email_data.body_html,
+                  label_ids: email_data.label_ids,
+                  attachments: email_data.attachments || [],
+                  mime_type: email_data.mime_type
+                }
+              end)
 
             # Process emails in smaller chunks of 10 for database insertion
             email_inputs
@@ -401,7 +422,19 @@ defmodule JumpstartAi.Accounts.User do
                 :create_from_gmail,
                 upsert?: true,
                 upsert_identity: :unique_gmail_id_per_user,
-                upsert_fields: [:subject, :from_email, :from_name, :to_email, :date, :snippet, :body_text, :body_html, :label_ids, :attachments, :mime_type],
+                upsert_fields: [
+                  :subject,
+                  :from_email,
+                  :from_name,
+                  :to_email,
+                  :date,
+                  :snippet,
+                  :body_text,
+                  :body_html,
+                  :label_ids,
+                  :attachments,
+                  :mime_type
+                ],
                 actor: user,
                 authorize?: false,
                 return_records?: false,
@@ -413,11 +446,13 @@ defmodule JumpstartAi.Accounts.User do
           end
 
           # Use streaming approach to process emails in batches
-          case JumpstartAi.GmailService.stream_user_emails(user, 
-            batch_size: 50,        # Fetch 50 emails at a time from Gmail API
-            max_results: 500,      # Total of 500 emails
-            process_fn: process_batch_fn
-          ) do
+          case JumpstartAi.GmailService.stream_user_emails(user,
+                 # Fetch 50 emails at a time from Gmail API
+                 batch_size: 50,
+                 # Total of 500 emails
+                 max_results: 500,
+                 process_fn: process_batch_fn
+               ) do
             {:ok, total_processed} ->
               changeset
               |> Ash.Changeset.change_attribute(:email_sync_status, "completed")
@@ -429,6 +464,98 @@ defmodule JumpstartAi.Accounts.User do
               |> Ash.Changeset.add_error(
                 field: :email_sync_status,
                 message: "Failed to sync emails: #{inspect(reason)}"
+              )
+          end
+        end
+      end
+    end
+
+    update :sync_google_contacts do
+      require_atomic? false
+      accept []
+
+      change fn changeset, _context ->
+        user = changeset.data
+
+        # Check if user has Google access token
+        if is_nil(user.google_access_token) do
+          changeset
+          |> Ash.Changeset.change_attribute(:contact_sync_status, "failed")
+          |> Ash.Changeset.add_error(
+            field: :contact_sync_status,
+            message: "No Google access token available"
+          )
+        else
+          # Set to processing to indicate work is starting
+          changeset =
+            Ash.Changeset.change_attribute(changeset, :contact_sync_status, "processing")
+
+          # Define the process function that will be called for each batch of contacts
+          process_batch_fn = fn contacts ->
+            # Convert contact data to the format expected by the Contact resource
+            contact_inputs =
+              Enum.map(contacts, fn contact_data ->
+                %{
+                  user_id: user.id,
+                  external_id: contact_data.id,
+                  email: contact_data.email,
+                  firstname: contact_data.firstname,
+                  lastname: contact_data.lastname,
+                  phone: contact_data.phone,
+                  company: contact_data.company,
+                  external_created_at: parse_contact_date(contact_data.created_at),
+                  external_updated_at: parse_contact_date(contact_data.updated_at)
+                }
+              end)
+
+            # Process contacts in smaller chunks of 10 for database insertion
+            contact_inputs
+            |> Enum.chunk_every(10)
+            |> Enum.each(fn chunk ->
+              Ash.bulk_create(
+                chunk,
+                JumpstartAi.Accounts.Contact,
+                :create_from_google,
+                upsert?: true,
+                upsert_identity: :unique_external_contact,
+                upsert_fields: [
+                  :email,
+                  :firstname,
+                  :lastname,
+                  :phone,
+                  :company,
+                  :notes_summary,
+                  :external_updated_at
+                ],
+                actor: user,
+                authorize?: false,
+                return_records?: false,
+                stop_on_error?: false
+              )
+            end)
+
+            {:ok, length(contact_inputs)}
+          end
+
+          # Use streaming approach to process contacts in batches
+          case JumpstartAi.GoogleContactsService.stream_user_contacts(user,
+                 # Fetch 50 contacts at a time from Google API
+                 batch_size: 50,
+                 # Total of 500 contacts
+                 max_results: 500,
+                 process_fn: process_batch_fn
+               ) do
+            {:ok, total_processed} ->
+              changeset
+              |> Ash.Changeset.change_attribute(:contact_sync_status, "completed")
+              |> Ash.Changeset.change_attribute(:contacts_synced_at, DateTime.utc_now())
+
+            {:error, reason} ->
+              changeset
+              |> Ash.Changeset.change_attribute(:contact_sync_status, "failed")
+              |> Ash.Changeset.add_error(
+                field: :contact_sync_status,
+                message: "Failed to sync contacts: #{inspect(reason)}"
               )
           end
         end
@@ -490,6 +617,14 @@ defmodule JumpstartAi.Accounts.User do
     end
 
     attribute :emails_synced_at, :utc_datetime_usec do
+      allow_nil? true
+    end
+
+    attribute :contact_sync_status, :string do
+      allow_nil? true
+    end
+
+    attribute :contacts_synced_at, :utc_datetime_usec do
       allow_nil? true
     end
 
@@ -569,4 +704,22 @@ defmodule JumpstartAi.Accounts.User do
     end
   end
 
+  defp parse_contact_date(nil), do: nil
+
+  defp parse_contact_date(date_string) when is_binary(date_string) do
+    case DateTime.from_iso8601(date_string) do
+      {:ok, datetime, _} ->
+        datetime
+
+      _ ->
+        try do
+          case Timex.parse(date_string, "{RFC1123}") do
+            {:ok, datetime} -> datetime
+            _ -> nil
+          end
+        rescue
+          _ -> nil
+        end
+    end
+  end
 end

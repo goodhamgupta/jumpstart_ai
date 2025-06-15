@@ -9,17 +9,21 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       # Create a test user using Google OAuth registration
       {:ok, user} =
         User
-        |> Ash.Changeset.for_create(:register_with_google, %{
-          user_info: %{
-            "email" => "test@example.com",
-            "name" => "Test User"
+        |> Ash.Changeset.for_create(
+          :register_with_google,
+          %{
+            user_info: %{
+              "email" => "test@example.com",
+              "name" => "Test User"
+            },
+            oauth_tokens: %{
+              "access_token" => "test_access_token",
+              "refresh_token" => "test_refresh_token",
+              "expires_in" => 3600
+            }
           },
-          oauth_tokens: %{
-            "access_token" => "test_access_token",
-            "refresh_token" => "test_refresh_token",
-            "expires_in" => 3600
-          }
-        }, authorize?: false)
+          authorize?: false
+        )
         |> Ash.create()
 
       # Set email sync status to pending
@@ -36,25 +40,33 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       # the user doesn't have a Google access token
       {:ok, user_without_token} =
         User
-        |> Ash.Changeset.for_create(:register_with_google, %{
-          user_info: %{
-            "email" => "notoken@example.com",
-            "name" => "No Token User"
+        |> Ash.Changeset.for_create(
+          :register_with_google,
+          %{
+            user_info: %{
+              "email" => "notoken@example.com",
+              "name" => "No Token User"
+            },
+            oauth_tokens: %{
+              "access_token" => "fake_token",
+              "expires_in" => 3600
+            }
           },
-          oauth_tokens: %{
-            "access_token" => "fake_token",
-            "expires_in" => 3600
-          }
-        }, authorize?: false)
+          authorize?: false
+        )
         |> Ash.create()
 
       # Remove the access token to simulate missing token
       {:ok, user_without_token} =
         user_without_token
-        |> Ash.Changeset.for_update(:update, %{
-          google_access_token: nil,
-          email_sync_status: "pending"
-        }, authorize?: false)
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            google_access_token: nil,
+            email_sync_status: "pending"
+          },
+          authorize?: false
+        )
         |> Ash.update()
 
       job_without_token = %Oban.Job{args: %{"user_id" => user_without_token.id}}
@@ -79,24 +91,32 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       # (which means sync will still happen due to emails_synced_at being nil)
       {:ok, user} =
         User
-        |> Ash.Changeset.for_create(:register_with_google, %{
-          user_info: %{
-            "email" => "synced@example.com",
-            "name" => "Synced User"
+        |> Ash.Changeset.for_create(
+          :register_with_google,
+          %{
+            user_info: %{
+              "email" => "synced@example.com",
+              "name" => "Synced User"
+            },
+            oauth_tokens: %{
+              "access_token" => "test_access_token",
+              "expires_in" => 3600
+            }
           },
-          oauth_tokens: %{
-            "access_token" => "test_access_token",
-            "expires_in" => 3600
-          }
-        }, authorize?: false)
+          authorize?: false
+        )
         |> Ash.create()
 
       # Update to show already synced
       {:ok, user} =
         user
-        |> Ash.Changeset.for_update(:update, %{
-          email_sync_status: "completed"
-        }, authorize?: false)
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            email_sync_status: "completed"
+          },
+          authorize?: false
+        )
         |> Ash.update()
 
       job = %Oban.Job{args: %{"user_id" => user.id}}
@@ -104,7 +124,7 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       # Test that worker attempts sync (due to emails_synced_at being nil)
       # but it will likely fail due to invalid tokens
       result = EmailSync.perform(job)
-      
+
       # Result could be :ok or {:error, _} depending on Gmail service response
       # The important thing is that it doesn't crash
       assert result == :ok or match?({:error, _}, result)
@@ -114,17 +134,21 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       # Create a user that needs sync (has access token and pending status)
       {:ok, user} =
         User
-        |> Ash.Changeset.for_create(:register_with_google, %{
-          user_info: %{
-            "email" => "pending@example.com",
-            "name" => "Pending User"
+        |> Ash.Changeset.for_create(
+          :register_with_google,
+          %{
+            user_info: %{
+              "email" => "pending@example.com",
+              "name" => "Pending User"
+            },
+            oauth_tokens: %{
+              "access_token" => "test_access_token",
+              "refresh_token" => "test_refresh_token",
+              "expires_in" => 3600
+            }
           },
-          oauth_tokens: %{
-            "access_token" => "test_access_token",
-            "refresh_token" => "test_refresh_token",
-            "expires_in" => 3600
-          }
-        }, authorize?: false)
+          authorize?: false
+        )
         |> Ash.create()
 
       # Set to pending status
@@ -139,7 +163,7 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       # that the worker attempts to call the sync action
       # In a real test environment, we'd mock the GmailService
       result = EmailSync.perform(job)
-      
+
       # Result could be :ok or {:error, _} depending on Gmail service response
       # The important thing is that it doesn't crash
       assert result == :ok or match?({:error, _}, result)
@@ -148,14 +172,14 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
     test "worker configuration" do
       # Test that the worker has the required Oban.Worker interface
       assert function_exported?(EmailSync, :perform, 1)
-      
+
       # Test that the worker can be created - this validates basic Oban config
       job = %Oban.Job{
         worker: "JumpstartAi.Workers.EmailSync",
         queue: "email_sync",
         args: %{"user_id" => Ash.UUID.generate()}
       }
-      
+
       # Basic validation that it's an Oban job with correct worker
       assert job.worker == "JumpstartAi.Workers.EmailSync"
       assert job.queue == "email_sync"

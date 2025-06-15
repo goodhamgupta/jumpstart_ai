@@ -152,7 +152,7 @@ defmodule JumpstartAiWeb.SettingsLive do
                     <div class="ml-4">
                       <div class="text-sm font-medium text-gray-900">HubSpot CRM</div>
                       <div class="text-sm text-gray-500">
-                        Access contacts, deals, and notes from your HubSpot account
+                        Access contacts & notes from your HubSpot account
                       </div>
                     </div>
                   </div>
@@ -172,7 +172,7 @@ defmodule JumpstartAiWeb.SettingsLive do
                         phx-click="connect_hubspot"
                         class="inline-flex items-center rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600"
                       >
-                        Connect HubSpot
+                        Connect
                       </button>
                     <% end %>
                   </div>

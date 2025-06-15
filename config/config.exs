@@ -19,7 +19,7 @@ config :jumpstart_ai, Oban,
     default: 10,
     chat_responses: [limit: 10],
     conversations: [limit: 10],
-    email_sync: [limit: 5]
+    email_sync: [limit: 10]
   ],
   repo: JumpstartAi.Repo,
   plugins: [{Oban.Plugins.Cron, []}]
