@@ -26,14 +26,11 @@ defmodule JumpstartAiWeb.ChatLive do
               </svg>
             </label>
           </div>
-          <img
-            src={~p"/images/logo.svg"}
-            alt="Logo"
-            class="h-12"
-            height="48"
-          />
+          <img src={~p"/images/logo.svg"} alt="Logo" class="h-12" height="48" />
           <div class="mx-2 flex-1 px-2">
-            <p :if={@conversation} class="text-lg font-medium">{build_conversation_title_string(@conversation.title)}</p>
+            <p :if={@conversation} class="text-lg font-medium">
+              {build_conversation_title_string(@conversation.title)}
+            </p>
             <p class="text-sm">JumpstartAI</p>
           </div>
         </div>
@@ -129,8 +126,7 @@ defmodule JumpstartAiWeb.ChatLive do
         </div>
         <div class="absolute bottom-4 left-4">
           <a href="/sign-out" class="btn btn-ghost btn-sm">
-            <.icon name="hero-arrow-right-on-rectangle" />
-            Sign Out
+            <.icon name="hero-arrow-right-on-rectangle" /> Sign Out
           </a>
         </div>
       </div>

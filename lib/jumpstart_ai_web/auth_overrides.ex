@@ -20,7 +20,10 @@ defmodule JumpstartAiWeb.AuthOverrides do
 
   override AshAuthentication.Phoenix.Components.OAuth2 do
     set :root_class, "w-full"
-    set :link_class, "block w-full hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-opacity duration-200"
+
+    set :link_class,
+        "block w-full hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-opacity duration-200"
+
     set :icon_class, "w-full h-auto"
     set :hide_label, true
   end

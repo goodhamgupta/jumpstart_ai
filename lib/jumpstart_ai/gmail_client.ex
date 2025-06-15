@@ -134,10 +134,14 @@ defmodule JumpstartAi.GmailClient do
       end
 
     user
-    |> Ash.Changeset.for_update(:update, %{
-      google_access_token: new_tokens["access_token"],
-      google_token_expires_at: expires_at
-    }, authorize?: false)
+    |> Ash.Changeset.for_update(
+      :update,
+      %{
+        google_access_token: new_tokens["access_token"],
+        google_token_expires_at: expires_at
+      },
+      authorize?: false
+    )
     |> Ash.update()
   end
 

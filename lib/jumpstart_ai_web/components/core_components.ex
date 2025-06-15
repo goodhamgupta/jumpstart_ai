@@ -34,7 +34,7 @@ defmodule JumpstartAiWeb.CoreComponents do
   def markdown(assigns) do
     ~H"""
     <div class="markdown-content">
-      <%= raw(markdown_to_html(@text)) %>
+      {raw(markdown_to_html(@text))}
     </div>
     """
   end

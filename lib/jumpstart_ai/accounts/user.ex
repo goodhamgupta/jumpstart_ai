@@ -48,10 +48,10 @@ defmodule JumpstartAi.Accounts.User do
         client_id JumpstartAi.Secrets
         redirect_uri JumpstartAi.Secrets
         client_secret JumpstartAi.Secrets
-        authorization_params [
-          access_type: "offline",
-          scope: "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly"
-        ]
+
+        authorization_params access_type: "offline",
+                             scope:
+                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly"
       end
     end
   end
@@ -60,7 +60,6 @@ defmodule JumpstartAi.Accounts.User do
     table "users"
     repo JumpstartAi.Repo
   end
-
 
   actions do
     defaults [:read]
@@ -126,11 +125,12 @@ defmodule JumpstartAi.Accounts.User do
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
           if not is_nil(user.google_access_token) and
-             (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
             # Schedule job with a small delay to ensure user is fully persisted
             JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
             |> Oban.insert(schedule_in: 5)
           end
+
           {:ok, user}
         end)
       end
@@ -166,11 +166,12 @@ defmodule JumpstartAi.Accounts.User do
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
           if not is_nil(user.google_access_token) and
-             (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+               (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
             # Schedule job with a small delay to ensure user is fully persisted
             JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
             |> Oban.insert(schedule_in: 5)
           end
+
           {:ok, user}
         end)
       end
@@ -317,11 +318,12 @@ defmodule JumpstartAi.Accounts.User do
                  _ ->
                    # Trigger email sync for Google OAuth users
                    if not is_nil(user.google_access_token) and
-                      (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+                        (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
                      # Schedule job with a small delay to ensure user is fully persisted
                      JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
                      |> Oban.insert(schedule_in: 5)
                    end
+
                    {:ok, user}
                end
              end)

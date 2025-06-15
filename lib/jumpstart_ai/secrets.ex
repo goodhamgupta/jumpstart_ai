@@ -33,5 +33,4 @@ defmodule JumpstartAi.Secrets do
       ) do
     Application.fetch_env(:jumpstart_ai, :token_signing_secret)
   end
-
 end

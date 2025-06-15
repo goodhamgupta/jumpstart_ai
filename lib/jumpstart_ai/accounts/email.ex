@@ -11,7 +11,6 @@ defmodule JumpstartAi.Accounts.Email do
     repo JumpstartAi.Repo
   end
 
-
   actions do
     defaults [:read]
 
@@ -42,7 +41,6 @@ defmodule JumpstartAi.Accounts.Email do
       upsert? true
       upsert_identity :unique_gmail_id_per_user
     end
-
   end
 
   policies do
@@ -131,5 +129,4 @@ defmodule JumpstartAi.Accounts.Email do
   identities do
     identity :unique_gmail_id_per_user, [:gmail_id, :user_id]
   end
-
 end

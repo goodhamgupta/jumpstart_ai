@@ -20,15 +20,24 @@ defmodule JumpstartAi.Workers.EmailSync do
             :ok
 
           is_nil(user.google_refresh_token) ->
-            IO.puts("EmailSync – user #{user_id} needs to re-authorize Google access for email sync")
+            IO.puts(
+              "EmailSync – user #{user_id} needs to re-authorize Google access for email sync"
+            )
 
             user
-            |> Ash.Changeset.for_update(:update, %{email_sync_status: "needs_reauth"}, authorize?: false)
+            |> Ash.Changeset.for_update(:update, %{email_sync_status: "needs_reauth"},
+              authorize?: false
+            )
             |> Ash.update()
             |> case do
-              {:ok, _} -> :ok
+              {:ok, _} ->
+                :ok
+
               {:error, error} ->
-                IO.inspect("EmailSync – failed to update user #{user_id} status: #{inspect(error)}")
+                IO.inspect(
+                  "EmailSync – failed to update user #{user_id} status: #{inspect(error)}"
+                )
+
                 {:error, error}
             end
 

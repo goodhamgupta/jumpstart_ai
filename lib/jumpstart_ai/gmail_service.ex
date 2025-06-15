@@ -11,13 +11,14 @@ defmodule JumpstartAi.GmailService do
   def fetch_user_emails(user, opts \\ []) do
     case GmailClient.fetch_emails(user, opts) do
       {:ok, %{"messages" => messages}} when is_list(messages) ->
-        email_details = Enum.map(messages, fn message ->
-          case GmailClient.fetch_email(user, message["id"]) do
-            {:ok, email_data} -> parse_email_data(email_data)
-            {:error, _} -> nil
-          end
-        end)
-        |> Enum.reject(&is_nil/1)
+        email_details =
+          Enum.map(messages, fn message ->
+            case GmailClient.fetch_email(user, message["id"]) do
+              {:ok, email_data} -> parse_email_data(email_data)
+              {:error, _} -> nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
 
         {:ok, email_details}
 
@@ -86,7 +87,7 @@ defmodule JumpstartAi.GmailService do
 
       payload["parts"] ->
         payload["parts"]
-        |> Enum.find(fn part -> 
+        |> Enum.find(fn part ->
           part["mimeType"] == "text/plain" || part["mimeType"] == "text/html"
         end)
         |> case do
