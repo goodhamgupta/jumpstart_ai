@@ -81,8 +81,21 @@ defmodule JumpstartAi.GmailClient do
   end
 
   defp refresh_token_request(refresh_token) do
-    client_id = JumpstartAi.Secrets.secret_for(JumpstartAi.Accounts.User, [:google_client_id], nil, nil)
-    client_secret = JumpstartAi.Secrets.secret_for(JumpstartAi.Accounts.User, [:google_client_secret], nil, nil)
+    {:ok, client_id} =
+      JumpstartAi.Secrets.secret_for(
+        [:authentication, :strategies, :google, :client_id],
+        JumpstartAi.Accounts.User,
+        nil,
+        nil
+      )
+
+    {:ok, client_secret} =
+      JumpstartAi.Secrets.secret_for(
+        [:authentication, :strategies, :google, :client_secret],
+        JumpstartAi.Accounts.User,
+        nil,
+        nil
+      )
 
     body = %{
       "client_id" => client_id,
@@ -124,7 +137,7 @@ defmodule JumpstartAi.GmailClient do
     |> Ash.Changeset.for_update(:update, %{
       google_access_token: new_tokens["access_token"],
       google_token_expires_at: expires_at
-    })
+    }, authorize?: false)
     |> Ash.update()
   end
 

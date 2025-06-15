@@ -48,6 +48,10 @@ defmodule JumpstartAi.Accounts.User do
         client_id JumpstartAi.Secrets
         redirect_uri JumpstartAi.Secrets
         client_secret JumpstartAi.Secrets
+        authorization_params [
+          access_type: "offline",
+          scope: "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly"
+        ]
       end
     end
   end
@@ -60,6 +64,15 @@ defmodule JumpstartAi.Accounts.User do
 
   actions do
     defaults [:read]
+
+    read :get_by_id do
+      description "Fetch a single user by UUID"
+      get? true
+
+      argument :id, :uuid, allow_nil?: false
+
+      filter expr(id == ^arg(:id))
+    end
 
     read :get_by_subject do
       description "Get a user by the subject claim in a JWT"
@@ -112,9 +125,11 @@ defmodule JumpstartAi.Accounts.User do
       # trigger email sync for users who haven't synced emails yet
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and 
+          if not is_nil(user.google_access_token) and
              (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id}) |> Oban.insert()
+            # Schedule job with a small delay to ensure user is fully persisted
+            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
+            |> Oban.insert(schedule_in: 5)
           end
           {:ok, user}
         end)
@@ -150,9 +165,11 @@ defmodule JumpstartAi.Accounts.User do
       # trigger email sync for users who haven't synced emails yet
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, user, _context ->
-          if not is_nil(user.google_access_token) and 
+          if not is_nil(user.google_access_token) and
              (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id}) |> Oban.insert()
+            # Schedule job with a small delay to ensure user is fully persisted
+            JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
+            |> Oban.insert(schedule_in: 5)
           end
           {:ok, user}
         end)
@@ -299,13 +316,20 @@ defmodule JumpstartAi.Accounts.User do
 
                  _ ->
                    # Trigger email sync for Google OAuth users
-                   if not is_nil(user.google_access_token) and 
+                   if not is_nil(user.google_access_token) and
                       (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
-                     JumpstartAi.Workers.EmailSync.new(%{user_id: user.id}) |> Oban.insert()
+                     # Schedule job with a small delay to ensure user is fully persisted
+                     JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
+                     |> Oban.insert(schedule_in: 5)
                    end
                    {:ok, user}
                end
              end)
+    end
+
+    update :update do
+      description "Update user attributes including Google tokens"
+      accept [:google_access_token, :google_token_expires_at, :email_sync_status]
     end
 
     update :sync_gmail_emails do
@@ -331,6 +355,8 @@ defmodule JumpstartAi.Accounts.User do
             {:ok, emails} ->
               Enum.each(emails, fn email_data ->
                 JumpstartAi.Accounts.Email
+                |> Ash.Changeset.new()
+                |> Ash.Changeset.set_argument(:user_id, user.id)
                 |> Ash.Changeset.for_create(
                   :create_from_gmail,
                   %{
@@ -345,9 +371,9 @@ defmodule JumpstartAi.Accounts.User do
                     body_text: email_data.body,
                     label_ids: email_data.label_ids
                   },
-                  actor: user
+                  actor: user,
+                  authorize?: false
                 )
-                |> Ash.Changeset.set_argument(:user_id, user.id)
                 |> Ash.create()
               end)
 

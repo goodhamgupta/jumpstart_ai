@@ -23,4 +23,8 @@
 ## ash_oban usage
 [ash_oban usage rules](deps/ash_oban/usage-rules.md)
 <-- ash_oban-end -->
+<-- ash_reactor-start -->
+## ash_reactor usage
+[ash_reactor usge rules](reactor/usage-rules.md)
+<-- ash_reactor-end-->
 <-- usage-rules-end -->
