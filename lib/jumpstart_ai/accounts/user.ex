@@ -43,12 +43,13 @@ defmodule JumpstartAi.Accounts.User do
         client_secret JumpstartAi.Secrets
         redirect_uri JumpstartAi.Secrets
         base_url "https://api.hubapi.com"
-        authorize_url "https://app-na2.hubspot.com/oauth/authorize"
+        authorize_url "https://app.hubspot.com/oauth/authorize"
         token_url "https://api.hubapi.com/oauth/v1/token"
-        user_url "https://api.hubapi.com/oauth/v1/access-tokens/{token}"
+        user_url "https://api.hubapi.com/crm/v3/owners"
+        register_action_name :register_with_hubspot
 
         authorization_params scope:
-                               "crm.objects.contacts.write timeline sales-email-read oauth crm.objects.contacts.read"
+                               "crm.objects.contacts.write timeline sales-email-read oauth crm.objects.contacts.read crm.objects.owners.read"
       end
     end
   end
@@ -150,37 +151,127 @@ defmodule JumpstartAi.Accounts.User do
       upsert? true
       upsert_identity :unique_email
 
+      # Make email optional for HubSpot since we're mainly updating existing users
+      accept [:email]
+
       change AshAuthentication.GenerateTokenChange
 
       # Required if you have the `identity_resource` configuration enabled.
       change AshAuthentication.Strategy.OAuth2.IdentityChange
 
-      change fn changeset, _ ->
+      change fn changeset, context ->
+        # Add detailed logging to debug OAuth flow
+        require Logger
+        Logger.info("=== HubSpot OAuth Action Called ===")
+        Logger.info("HubSpot OAuth - Changeset data: #{inspect(changeset.data)}")
+        Logger.info("HubSpot OAuth - Changeset attributes: #{inspect(changeset.attributes)}")
+        Logger.info("HubSpot OAuth - Changeset arguments: #{inspect(changeset.arguments)}")
+        Logger.info("HubSpot OAuth - Context: #{inspect(context)}")
+
         user_info = Ash.Changeset.get_argument(changeset, :user_info)
         oauth_tokens = Ash.Changeset.get_argument(changeset, :oauth_tokens)
 
-        expires_at =
-          case oauth_tokens["expires_in"] do
-            expires_in when is_integer(expires_in) ->
-              DateTime.utc_now() |> DateTime.add(expires_in, :second)
+        Logger.info("HubSpot OAuth - User Info: #{inspect(user_info)}")
+        Logger.info("HubSpot OAuth - OAuth Tokens: #{inspect(oauth_tokens)}")
 
-            _ ->
-              nil
+        # For HubSpot OAuth, we need to ensure we have an email for the upsert to work
+        # Get the current user from context if available (they should be logged in)
+        current_user_email =
+          case context do
+            %{actor: %{email: email}} when not is_nil(email) -> email
+            _ -> nil
           end
 
-        # Extract portal_id from HubSpot user info or token response
-        portal_id = user_info["hub_id"] || oauth_tokens["hub_id"]
+        Logger.info(
+          "HubSpot OAuth - Current user email from context: #{inspect(current_user_email)}"
+        )
 
-        changeset
-        |> Ash.Changeset.change_attributes(Map.take(user_info, ["email"]))
-        |> Ash.Changeset.change_attribute(:hubspot_access_token, oauth_tokens["access_token"])
-        |> Ash.Changeset.change_attribute(:hubspot_refresh_token, oauth_tokens["refresh_token"])
-        |> Ash.Changeset.change_attribute(:hubspot_token_expires_at, expires_at)
-        |> Ash.Changeset.change_attribute(:hubspot_portal_id, portal_id)
+        # Ensure we have oauth_tokens
+        case oauth_tokens do
+          nil ->
+            Logger.error("HubSpot OAuth - No oauth_tokens provided!")
+            changeset
+
+          %{} = tokens ->
+            Logger.info("HubSpot OAuth - Processing tokens: #{inspect(Map.keys(tokens))}")
+
+            expires_at =
+              case tokens["expires_in"] do
+                expires_in when is_integer(expires_in) ->
+                  DateTime.utc_now() |> DateTime.add(expires_in, :second)
+
+                _ ->
+                  nil
+              end
+
+            # Determine the email to use - HubSpot returns user info in results array
+            email_from_user_info =
+              case user_info do
+                %{"results" => [%{"email" => email} | _]} when not is_nil(email) -> email
+                %{"email" => email} when not is_nil(email) -> email
+                %{"user" => email} when not is_nil(email) -> email
+                _ -> nil
+              end
+
+            email_to_use = current_user_email || changeset.data.email || email_from_user_info
+
+            Logger.info("HubSpot OAuth - Email to use: #{inspect(email_to_use)}")
+
+            Logger.info(
+              "HubSpot OAuth - Access token present: #{not is_nil(tokens["access_token"])}"
+            )
+
+            Logger.info(
+              "HubSpot OAuth - Refresh token present: #{not is_nil(tokens["refresh_token"])}"
+            )
+
+            Logger.info("HubSpot OAuth - Expires at: #{inspect(expires_at)}")
+
+            # Extract HubSpot user ID from user info if available
+            hubspot_user_id =
+              case user_info do
+                %{"results" => [%{"userId" => user_id} | _]} when not is_nil(user_id) ->
+                  to_string(user_id)
+
+                _ ->
+                  nil
+              end
+
+            Logger.info("HubSpot OAuth - HubSpot User ID: #{inspect(hubspot_user_id)}")
+
+            # Always set the email for upsert to work properly
+            final_changeset =
+              changeset
+              |> Ash.Changeset.change_attribute(:email, email_to_use)
+              |> Ash.Changeset.change_attribute(:hubspot_access_token, tokens["access_token"])
+              |> Ash.Changeset.change_attribute(:hubspot_refresh_token, tokens["refresh_token"])
+              |> Ash.Changeset.change_attribute(:hubspot_token_expires_at, expires_at)
+              |> then(fn cs ->
+                if hubspot_user_id,
+                  do: Ash.Changeset.change_attribute(cs, :hubspot_portal_id, hubspot_user_id),
+                  else: cs
+              end)
+
+            Logger.info(
+              "HubSpot OAuth - Final changeset attributes: #{inspect(final_changeset.attributes)}"
+            )
+
+            final_changeset
+
+          _ ->
+            Logger.error("HubSpot OAuth - Invalid oauth_tokens format: #{inspect(oauth_tokens)}")
+            changeset
+        end
       end
 
       # Required if you're using the password & confirmation strategies
-      upsert_fields []
+      upsert_fields [
+        :hubspot_access_token,
+        :hubspot_refresh_token,
+        :hubspot_token_expires_at,
+        :hubspot_portal_id
+      ]
+
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
     end
 
@@ -413,6 +504,38 @@ defmodule JumpstartAi.Accounts.User do
         rescue
           _ -> nil
         end
+    end
+  end
+
+  # Fetch user info from HubSpot's access token endpoint
+  defp fetch_hubspot_user_info(access_token) do
+    require Logger
+    url = "https://api.hubapi.com/oauth/v1/access-tokens/#{access_token}"
+
+    Logger.info("HubSpot OAuth - Fetching user info from: #{url}")
+
+    case HTTPoison.get(url) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, user_info} ->
+            Logger.info("HubSpot OAuth - Successfully fetched user info: #{inspect(user_info)}")
+            user_info
+
+          {:error, _} ->
+            Logger.error("HubSpot OAuth - Failed to parse user info response")
+            %{}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
+        Logger.error(
+          "HubSpot OAuth - User info request failed with status #{status_code}: #{body}"
+        )
+
+        %{}
+
+      {:error, error} ->
+        Logger.error("HubSpot OAuth - Network error: #{inspect(error)}")
+        %{}
     end
   end
 end

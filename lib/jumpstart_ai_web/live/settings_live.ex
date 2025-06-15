@@ -126,7 +126,9 @@ defmodule JumpstartAiWeb.SettingsLive do
                     </div>
                     <div class="ml-4">
                       <div class="text-sm font-medium text-gray-900">Google Account</div>
-                      <div class="text-sm text-gray-500"><%= if @current_user, do: @current_user.email, else: "Loading..." %></div>
+                      <div class="text-sm text-gray-500">
+                        {if @current_user, do: @current_user.email, else: "Loading..."}
+                      </div>
                     </div>
                   </div>
                   <div class="flex items-center">

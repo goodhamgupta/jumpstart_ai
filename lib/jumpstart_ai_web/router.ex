@@ -5,6 +5,22 @@ defmodule JumpstartAiWeb.Router do
   use AshAuthentication.Phoenix.Router
 
   import AshAuthentication.Plug.Helpers
+  require Logger
+
+  # Custom plug to log auth requests
+  defp log_auth_requests(conn, _opts) do
+    if String.starts_with?(conn.request_path, "/auth") do
+      Logger.info("Auth Route Request - Path: #{conn.request_path}")
+      Logger.info("Auth Route Request - Method: #{conn.method}")
+      Logger.info("Auth Route Request - Query Params: #{inspect(conn.query_params)}")
+
+      Logger.info(
+        "Auth Route Request - Full URL: #{conn.scheme}://#{conn.host}:#{conn.port}#{conn.request_path}"
+      )
+    end
+
+    conn
+  end
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -14,6 +30,7 @@ defmodule JumpstartAiWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :load_from_session
+    plug :log_auth_requests
   end
 
   pipeline :api do

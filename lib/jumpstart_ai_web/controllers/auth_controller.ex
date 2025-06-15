@@ -1,8 +1,19 @@
 defmodule JumpstartAiWeb.AuthController do
   use JumpstartAiWeb, :controller
   use AshAuthentication.Phoenix.Controller
+  require Logger
 
   def success(conn, activity, user, _token) do
+    # Log successful OAuth callback
+    Logger.info("AuthController.success - Activity: #{inspect(activity)}")
+    Logger.info("AuthController.success - User ID: #{user.id}")
+    Logger.info("AuthController.success - User Email: #{user.email}")
+    Logger.info("AuthController.success - Request Path: #{conn.request_path}")
+
+    Logger.info(
+      "AuthController.success - HubSpot Connected: #{not is_nil(user.hubspot_access_token)}"
+    )
+
     return_to = get_session(conn, :return_to) || ~p"/"
 
     message =
@@ -22,6 +33,12 @@ defmodule JumpstartAiWeb.AuthController do
   end
 
   def failure(conn, activity, reason) do
+    # Log authentication failure
+    Logger.error("AuthController.failure - Activity: #{inspect(activity)}")
+    Logger.error("AuthController.failure - Reason: #{inspect(reason)}")
+    Logger.error("AuthController.failure - Request Path: #{conn.request_path}")
+    Logger.error("AuthController.failure - Query Params: #{inspect(conn.query_params)}")
+
     message =
       case {activity, reason} do
         {_,
