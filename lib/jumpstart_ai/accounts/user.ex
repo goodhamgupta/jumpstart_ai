@@ -37,6 +37,19 @@ defmodule JumpstartAi.Accounts.User do
                              scope:
                                "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly"
       end
+
+      oauth2 :hubspot do
+        client_id JumpstartAi.Secrets
+        client_secret JumpstartAi.Secrets
+        redirect_uri JumpstartAi.Secrets
+        base_url "https://api.hubapi.com"
+        authorize_url "https://app-na2.hubspot.com/oauth/authorize"
+        token_url "https://api.hubapi.com/oauth/v1/token"
+        user_url "https://api.hubapi.com/oauth/v1/access-tokens/{token}"
+
+        authorization_params scope:
+                               "crm.objects.contacts.write timeline sales-email-read oauth crm.objects.contacts.read"
+      end
     end
   end
 
@@ -131,9 +144,97 @@ defmodule JumpstartAi.Accounts.User do
              end)
     end
 
+    create :register_with_hubspot do
+      argument :user_info, :map, allow_nil?: false
+      argument :oauth_tokens, :map, allow_nil?: false
+      upsert? true
+      upsert_identity :unique_email
+
+      change AshAuthentication.GenerateTokenChange
+
+      # Required if you have the `identity_resource` configuration enabled.
+      change AshAuthentication.Strategy.OAuth2.IdentityChange
+
+      change fn changeset, _ ->
+        user_info = Ash.Changeset.get_argument(changeset, :user_info)
+        oauth_tokens = Ash.Changeset.get_argument(changeset, :oauth_tokens)
+
+        expires_at =
+          case oauth_tokens["expires_in"] do
+            expires_in when is_integer(expires_in) ->
+              DateTime.utc_now() |> DateTime.add(expires_in, :second)
+
+            _ ->
+              nil
+          end
+
+        # Extract portal_id from HubSpot user info or token response
+        portal_id = user_info["hub_id"] || oauth_tokens["hub_id"]
+
+        changeset
+        |> Ash.Changeset.change_attributes(Map.take(user_info, ["email"]))
+        |> Ash.Changeset.change_attribute(:hubspot_access_token, oauth_tokens["access_token"])
+        |> Ash.Changeset.change_attribute(:hubspot_refresh_token, oauth_tokens["refresh_token"])
+        |> Ash.Changeset.change_attribute(:hubspot_token_expires_at, expires_at)
+        |> Ash.Changeset.change_attribute(:hubspot_portal_id, portal_id)
+      end
+
+      # Required if you're using the password & confirmation strategies
+      upsert_fields []
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+    end
+
     update :update do
-      description "Update user attributes including Google tokens"
-      accept [:google_access_token, :google_token_expires_at, :email_sync_status]
+      description "Update user attributes including Google and HubSpot tokens"
+
+      accept [
+        :google_access_token,
+        :google_token_expires_at,
+        :email_sync_status,
+        :hubspot_access_token,
+        :hubspot_refresh_token,
+        :hubspot_token_expires_at,
+        :hubspot_portal_id
+      ]
+    end
+
+    update :update_hubspot_tokens do
+      description "Update HubSpot API tokens for a user"
+      require_atomic? false
+
+      accept [
+        :hubspot_access_token,
+        :hubspot_refresh_token,
+        :hubspot_token_expires_at,
+        :hubspot_portal_id
+      ]
+
+      argument :access_token, :string, allow_nil?: false
+      argument :refresh_token, :string, allow_nil?: true
+      argument :expires_in, :integer, allow_nil?: true
+      argument :portal_id, :string, allow_nil?: true
+
+      change fn changeset, _context ->
+        access_token = Ash.Changeset.get_argument(changeset, :access_token)
+        refresh_token = Ash.Changeset.get_argument(changeset, :refresh_token)
+        expires_in = Ash.Changeset.get_argument(changeset, :expires_in)
+        portal_id = Ash.Changeset.get_argument(changeset, :portal_id)
+
+        expires_at =
+          case expires_in do
+            expires_in when is_integer(expires_in) ->
+              DateTime.utc_now() |> DateTime.add(expires_in, :second)
+
+            _ ->
+              nil
+          end
+
+        changeset
+        |> Ash.Changeset.change_attribute(:hubspot_access_token, access_token)
+        |> Ash.Changeset.change_attribute(:hubspot_refresh_token, refresh_token)
+        |> Ash.Changeset.change_attribute(:hubspot_token_expires_at, expires_at)
+        |> Ash.Changeset.change_attribute(:hubspot_portal_id, portal_id)
+      end
     end
 
     update :sync_gmail_emails do
@@ -240,6 +341,24 @@ defmodule JumpstartAi.Accounts.User do
     end
 
     attribute :emails_synced_at, :utc_datetime_usec do
+      allow_nil? true
+    end
+
+    attribute :hubspot_access_token, :string do
+      allow_nil? true
+      sensitive? true
+    end
+
+    attribute :hubspot_refresh_token, :string do
+      allow_nil? true
+      sensitive? true
+    end
+
+    attribute :hubspot_token_expires_at, :utc_datetime_usec do
+      allow_nil? true
+    end
+
+    attribute :hubspot_portal_id, :string do
       allow_nil? true
     end
   end

@@ -88,3 +88,9 @@
 .markdown-content th {
   @apply bg-base-200 font-bold;
 }
+
+/* Hide HubSpot OAuth strategy from login page only */
+/* This will hide HubSpot buttons specifically on auth pages but keep them visible elsewhere */
+a[href*="/auth/user/hubspot"] {
+  display: none !important;
+}

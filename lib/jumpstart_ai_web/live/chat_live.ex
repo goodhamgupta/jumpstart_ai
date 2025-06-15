@@ -124,7 +124,10 @@ defmodule JumpstartAiWeb.ChatLive do
             <% end %>
           </ul>
         </div>
-        <div class="absolute bottom-4 left-4">
+        <div class="absolute bottom-4 left-4 flex flex-col gap-2">
+          <.link navigate="/settings" class="btn btn-ghost btn-sm">
+            <.icon name="hero-cog-6-tooth" /> Settings
+          </.link>
           <a href="/sign-out" class="btn btn-ghost btn-sm">
             <.icon name="hero-arrow-right-on-rectangle" /> Sign Out
           </a>

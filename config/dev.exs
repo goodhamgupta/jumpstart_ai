@@ -83,3 +83,9 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# HubSpot OAuth configuration for development
+config :jumpstart_ai,
+  hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID", "d64b76f0-8dd0-49de-a813-91b0a5a60070"),
+  hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET", ""),
+  hubspot_redirect_uri: "http://localhost:4000/auth/user/hubspot/callback"
