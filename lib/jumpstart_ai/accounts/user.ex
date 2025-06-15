@@ -281,7 +281,7 @@ defmodule JumpstartAi.Accounts.User do
                Logger.info("HubSpot OAuth - Scheduling sync for user #{user.id}")
                Logger.info("HubSpot OAuth - User email: #{user.email}")
                Logger.info("HubSpot OAuth - Has HubSpot token: #{not is_nil(user.hubspot_access_token)}")
-               
+
                if not is_nil(user.hubspot_access_token) do
                  case JumpstartAi.Workers.HubSpotSync.schedule_sync(user.id, "contacts", 10) do
                    {:ok, job} ->
@@ -369,33 +369,44 @@ defmodule JumpstartAi.Accounts.User do
           # Set to processing to indicate work is starting
           changeset = Ash.Changeset.change_attribute(changeset, :email_sync_status, "processing")
 
-          case JumpstartAi.GmailService.fetch_user_emails(user, maxResults: 10) do
+          case JumpstartAi.GmailService.fetch_user_emails(user, maxResults: 500) do
             {:ok, emails} ->
-              Enum.each(emails, fn email_data ->
-                JumpstartAi.Accounts.Email
-                |> Ash.Changeset.new()
-                |> Ash.Changeset.set_argument(:user_id, user.id)
-                |> Ash.Changeset.for_create(
+              # Process emails in batches of 10 for bulk insertion
+              email_inputs = Enum.map(emails, fn email_data ->
+                %{
+                  user_id: user.id,
+                  gmail_id: email_data.id,
+                  thread_id: email_data.thread_id,
+                  subject: email_data.subject,
+                  from_email: extract_email_from_string(email_data.from),
+                  from_name: extract_name_from_string(email_data.from),
+                  to_email: extract_email_from_string(email_data.to),
+                  date: parse_email_date(email_data.date),
+                  snippet: email_data.snippet,
+                  body_text: email_data.body_text,
+                  body_html: email_data.body_html,
+                  label_ids: email_data.label_ids,
+                  attachments: email_data.attachments || [],
+                  mime_type: email_data.mime_type
+                }
+              end)
+
+              # Process in batches of 10
+              email_inputs
+              |> Enum.chunk_every(10)
+              |> Enum.each(fn batch ->
+                Ash.bulk_create(
+                  batch,
+                  JumpstartAi.Accounts.Email,
                   :create_from_gmail,
-                  %{
-                    gmail_id: email_data.id,
-                    thread_id: email_data.thread_id,
-                    subject: email_data.subject,
-                    from_email: extract_email_from_string(email_data.from),
-                    from_name: extract_name_from_string(email_data.from),
-                    to_email: extract_email_from_string(email_data.to),
-                    date: parse_email_date(email_data.date),
-                    snippet: email_data.snippet,
-                    body_text: email_data.body_text,
-                    body_html: email_data.body_html,
-                    label_ids: email_data.label_ids,
-                    attachments: email_data.attachments || [],
-                    mime_type: email_data.mime_type
-                  },
+                  upsert?: true,
+                  upsert_identity: :unique_gmail_id_per_user,
+                  upsert_fields: [:subject, :from_email, :from_name, :to_email, :date, :snippet, :body_text, :body_html, :label_ids, :attachments, :mime_type],
                   actor: user,
-                  authorize?: false
+                  authorize?: false,
+                  return_records?: false,
+                  stop_on_error?: false
                 )
-                |> Ash.create()
               end)
 
               changeset
