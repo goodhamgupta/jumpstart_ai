@@ -369,46 +369,56 @@ defmodule JumpstartAi.Accounts.User do
           # Set to processing to indicate work is starting
           changeset = Ash.Changeset.change_attribute(changeset, :email_sync_status, "processing")
 
-          case JumpstartAi.GmailService.fetch_user_emails(user, maxResults: 500) do
-            {:ok, emails} ->
-              # Process emails in batches of 10 for bulk insertion
-              email_inputs = Enum.map(emails, fn email_data ->
-                %{
-                  user_id: user.id,
-                  gmail_id: email_data.id,
-                  thread_id: email_data.thread_id,
-                  subject: email_data.subject,
-                  from_email: extract_email_from_string(email_data.from),
-                  from_name: extract_name_from_string(email_data.from),
-                  to_email: extract_email_from_string(email_data.to),
-                  date: parse_email_date(email_data.date),
-                  snippet: email_data.snippet,
-                  body_text: email_data.body_text,
-                  body_html: email_data.body_html,
-                  label_ids: email_data.label_ids,
-                  attachments: email_data.attachments || [],
-                  mime_type: email_data.mime_type
-                }
-              end)
+          # Define the process function that will be called for each batch of emails
+          process_batch_fn = fn emails ->
+            # Convert email data to the format expected by the Email resource
+            email_inputs = Enum.map(emails, fn email_data ->
+              %{
+                user_id: user.id,
+                gmail_id: email_data.id,
+                thread_id: email_data.thread_id,
+                subject: email_data.subject,
+                from_email: extract_email_from_string(email_data.from),
+                from_name: extract_name_from_string(email_data.from),
+                to_email: extract_email_from_string(email_data.to),
+                date: parse_email_date(email_data.date),
+                snippet: email_data.snippet,
+                body_text: email_data.body_text,
+                body_html: email_data.body_html,
+                label_ids: email_data.label_ids,
+                attachments: email_data.attachments || [],
+                mime_type: email_data.mime_type
+              }
+            end)
 
-              # Process in batches of 10
-              email_inputs
-              |> Enum.chunk_every(10)
-              |> Enum.each(fn batch ->
-                Ash.bulk_create(
-                  batch,
-                  JumpstartAi.Accounts.Email,
-                  :create_from_gmail,
-                  upsert?: true,
-                  upsert_identity: :unique_gmail_id_per_user,
-                  upsert_fields: [:subject, :from_email, :from_name, :to_email, :date, :snippet, :body_text, :body_html, :label_ids, :attachments, :mime_type],
-                  actor: user,
-                  authorize?: false,
-                  return_records?: false,
-                  stop_on_error?: false
-                )
-              end)
+            # Process emails in smaller chunks of 10 for database insertion
+            email_inputs
+            |> Enum.chunk_every(10)
+            |> Enum.each(fn chunk ->
+              Ash.bulk_create(
+                chunk,
+                JumpstartAi.Accounts.Email,
+                :create_from_gmail,
+                upsert?: true,
+                upsert_identity: :unique_gmail_id_per_user,
+                upsert_fields: [:subject, :from_email, :from_name, :to_email, :date, :snippet, :body_text, :body_html, :label_ids, :attachments, :mime_type],
+                actor: user,
+                authorize?: false,
+                return_records?: false,
+                stop_on_error?: false
+              )
+            end)
 
+            {:ok, length(email_inputs)}
+          end
+
+          # Use streaming approach to process emails in batches
+          case JumpstartAi.GmailService.stream_user_emails(user, 
+            batch_size: 50,        # Fetch 50 emails at a time from Gmail API
+            max_results: 500,      # Total of 500 emails
+            process_fn: process_batch_fn
+          ) do
+            {:ok, total_processed} ->
               changeset
               |> Ash.Changeset.change_attribute(:email_sync_status, "completed")
               |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
