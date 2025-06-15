@@ -144,16 +144,20 @@ defmodule JumpstartAi.Workers.HubSpotSync do
     # This is a placeholder that creates a summary note for each contact
 
     if contact.notes_summary && String.length(contact.notes_summary) > 0 do
+      # Generate a unique note ID for this summary note
+      note_id = "summary_#{contact.external_id}_#{System.system_time(:second)}"
+
       note_data = %{
         contact_id: contact.id,
+        hubspot_note_id: note_id,
         content: "Contact summary: #{contact.notes_summary}",
         note_type: "SUMMARY",
-        external_created_at: contact.external_created_at,
-        external_updated_at: contact.external_updated_at
+        created_at: contact.external_created_at,
+        updated_at: contact.external_updated_at
       }
 
       ContactNote
-      |> Ash.Changeset.for_create(:create, note_data)
+      |> Ash.Changeset.for_create(:create_from_hubspot, %{hubspot_note_data: note_data})
       |> Ash.create(authorize?: false)
       |> case do
         {:ok, note} ->

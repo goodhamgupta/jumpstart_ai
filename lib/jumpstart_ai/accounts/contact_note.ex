@@ -16,7 +16,8 @@ defmodule JumpstartAi.Accounts.ContactNote do
     create :create do
       accept [
         :contact_id,
-        :hubspot_note_id,
+        :source,
+        :external_id,
         :content,
         :note_type,
         :external_created_at,
@@ -27,13 +28,15 @@ defmodule JumpstartAi.Accounts.ContactNote do
     create :create_from_hubspot do
       argument :hubspot_note_data, :map, allow_nil?: false
       upsert? true
-      upsert_identity :unique_hubspot_note
+      upsert_identity :unique_external_note
 
       change fn changeset, _context ->
         note_data = Ash.Changeset.get_argument(changeset, :hubspot_note_data)
 
         changeset
-        |> Ash.Changeset.change_attribute(:hubspot_note_id, note_data.hubspot_note_id)
+        |> Ash.Changeset.change_attribute(:contact_id, note_data.contact_id)
+        |> Ash.Changeset.change_attribute(:source, "hubspot")
+        |> Ash.Changeset.change_attribute(:external_id, note_data.hubspot_note_id)
         |> Ash.Changeset.change_attribute(:content, note_data.content)
         |> Ash.Changeset.change_attribute(:note_type, note_data.note_type || "NOTE")
         |> Ash.Changeset.change_attribute(:external_created_at, note_data.created_at)
@@ -64,10 +67,11 @@ defmodule JumpstartAi.Accounts.ContactNote do
       argument :query, :string, allow_nil?: false
     end
 
-    read :get_by_hubspot_id do
-      argument :hubspot_note_id, :string, allow_nil?: false
+    read :get_by_external_id do
+      argument :external_id, :string, allow_nil?: false
+      argument :source, :string, allow_nil?: false
       get? true
-      filter expr(hubspot_note_id == ^arg(:hubspot_note_id))
+      filter expr(external_id == ^arg(:external_id) and source == ^arg(:source))
     end
   end
 
@@ -89,8 +93,13 @@ defmodule JumpstartAi.Accounts.ContactNote do
       public? true
     end
 
-    attribute :hubspot_note_id, :string do
-      allow_nil? true
+    attribute :source, :string do
+      allow_nil? false
+      public? true
+    end
+
+    attribute :external_id, :string do
+      allow_nil? false
       public? true
     end
 
@@ -125,6 +134,6 @@ defmodule JumpstartAi.Accounts.ContactNote do
   end
 
   identities do
-    identity :unique_hubspot_note, [:contact_id, :hubspot_note_id]
+    identity :unique_external_note, [:contact_id, :source, :external_id]
   end
 end

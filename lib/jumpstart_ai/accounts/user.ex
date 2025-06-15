@@ -447,10 +447,8 @@ defmodule JumpstartAi.Accounts.User do
 
           # Use streaming approach to process emails in batches
           case JumpstartAi.GmailService.stream_user_emails(user,
-                 # Fetch 50 emails at a time from Gmail API
                  batch_size: 50,
-                 # Total of 500 emails
-                 max_results: 500,
+                 max_results: 100,
                  process_fn: process_batch_fn
                ) do
             {:ok, total_processed} ->
