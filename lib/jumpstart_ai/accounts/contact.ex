@@ -67,14 +67,16 @@ defmodule JumpstartAi.Accounts.Contact do
 
     create :create_from_google do
       argument :google_data, :map, allow_nil?: false
+      argument :user_id, :uuid, allow_nil?: false
       upsert? true
       upsert_identity :unique_external_contact
 
       change fn changeset, _context ->
         google_data = Ash.Changeset.get_argument(changeset, :google_data)
+        user_id = Ash.Changeset.get_argument(changeset, :user_id)
 
         changeset
-        |> Ash.Changeset.change_attribute(:user_id, google_data.user_id)
+        |> Ash.Changeset.change_attribute(:user_id, user_id)
         |> Ash.Changeset.change_attribute(:source, "google")
         |> Ash.Changeset.change_attribute(:external_id, google_data.google_id)
         |> Ash.Changeset.change_attribute(:email, google_data.email)

@@ -4,44 +4,59 @@ defmodule JumpstartAi.GoogleContactsService do
   """
 
   alias JumpstartAi.GoogleContactsClient
+  require Logger
 
   @doc """
   Fetches and processes all contacts for a user
   """
   def fetch_user_contacts(user, opts \\ []) do
+    Logger.debug("⏬  Fetching full contact list for #{inspect(user)} (opts=#{inspect(opts)})")
+
     case GoogleContactsClient.fetch_contacts(user, opts) do
       {:ok, %{"connections" => connections}} when is_list(connections) ->
+        Logger.debug("📥  Received #{length(connections)} raw contacts")
+
         contact_details =
-          Enum.map(connections, fn connection ->
-            parse_contact_data(connection)
-          end)
+          connections
+          |> Enum.map(&parse_contact_data/1)
           |> Enum.reject(&is_nil/1)
 
+        Logger.info("✅  Parsed #{length(contact_details)} contacts for #{inspect(user)}")
         {:ok, contact_details}
 
       {:ok, _response} ->
+        Logger.info("ℹ️   No contacts returned for #{inspect(user)}")
         {:ok, []}
 
       {:error, reason} ->
+        Logger.error("❌  Failed fetching contacts for #{inspect(user)}: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
   @doc """
   Streams contacts in batches, processing and yielding each batch as it's fetched.
-  This allows for processing contacts in smaller chunks instead of loading all into memory.
 
   Options:
-  - batch_size: Number of contacts to fetch per batch (default: 50)
-  - max_results: Maximum total contacts to fetch (default: 500)
-  - process_fn: Function to call with each batch of processed contacts
+    • :batch_size   – contacts per request (default 50)
+    • :max_results  – hard cap on contacts (default 500)
+    • :process_fn   – fn(batch) -> {:ok | :error, _}
   """
   def stream_user_contacts(user, opts \\ []) do
     batch_size = Keyword.get(opts, :batch_size, 50)
     max_results = Keyword.get(opts, :max_results, 500)
     process_fn = Keyword.get(opts, :process_fn, fn batch -> {:ok, batch} end)
 
-    stream_contacts_with_pagination(user, process_fn, batch_size, max_results, nil, 0)
+    Logger.info(
+      "🚿  Streaming contacts for #{inspect(user)} " <>
+        "(batch_size=#{batch_size}, max_results=#{max_results})"
+    )
+
+    result =
+      stream_contacts_with_pagination(user, process_fn, batch_size, max_results, nil, 0)
+
+    Logger.info("🏁  Finished streaming for #{inspect(user)} → #{inspect(result)}")
+    result
   end
 
   defp stream_contacts_with_pagination(
@@ -52,59 +67,65 @@ defmodule JumpstartAi.GoogleContactsService do
          page_token,
          processed_count
        ) do
-    # Calculate how many contacts to fetch in this batch
     remaining = max_results - processed_count
     current_batch_size = min(batch_size, remaining)
 
-    if current_batch_size <= 0 do
-      {:ok, processed_count}
-    else
-      # Build request options with pagination
-      opts = [pageSize: current_batch_size]
-      opts = if page_token, do: Keyword.put(opts, :pageToken, page_token), else: opts
+    cond do
+      current_batch_size <= 0 ->
+        Logger.debug("🎉  Reached max_results (#{processed_count})")
+        {:ok, processed_count}
 
-      case GoogleContactsClient.fetch_contacts(user, opts) do
-        {:ok, %{"connections" => connections, "nextPageToken" => next_token}}
-        when is_list(connections) ->
-          case process_batch_of_contacts(connections, process_fn) do
-            {:ok, batch_count} ->
-              new_processed_count = processed_count + batch_count
+      true ->
+        opts = [pageSize: current_batch_size]
+        opts = if page_token, do: Keyword.put(opts, :pageToken, page_token), else: opts
 
-              # Continue with next page if we have more to fetch and there's a next page token
-              if new_processed_count < max_results and next_token do
+        Logger.debug(
+          "🔗  Requesting page (token=#{inspect(page_token)}) " <>
+            "size=#{current_batch_size}"
+        )
+
+        case GoogleContactsClient.fetch_contacts(user, opts) do
+          {:ok, %{"connections" => connections, "nextPageToken" => next_token}}
+          when is_list(connections) ->
+            Logger.debug("📄  Got #{length(connections)} connections, next_page? #{!!next_token}")
+
+            with {:ok, batch_count} <- process_batch_of_contacts(connections, process_fn) do
+              new_total = processed_count + batch_count
+
+              if new_total < max_results and next_token do
                 stream_contacts_with_pagination(
                   user,
                   process_fn,
                   batch_size,
                   max_results,
                   next_token,
-                  new_processed_count
+                  new_total
                 )
               else
-                {:ok, new_processed_count}
+                {:ok, new_total}
               end
+            else
+              {:error, reason} ->
+                Logger.error("❌  Batch processing failed: #{inspect(reason)}")
+                {:error, reason}
+            end
 
-            {:error, reason} ->
-              {:error, reason}
-          end
+          {:ok, %{"connections" => connections}} when is_list(connections) ->
+            Logger.debug("📄  Final page with #{length(connections)} connections")
 
-        {:ok, %{"connections" => connections}} when is_list(connections) ->
-          # No more pages available
-          case process_batch_of_contacts(connections, process_fn) do
-            {:ok, batch_count} ->
-              {:ok, processed_count + batch_count}
+            case process_batch_of_contacts(connections, process_fn) do
+              {:ok, count} -> {:ok, processed_count + count}
+              {:error, _} = e -> e
+            end
 
-            {:error, reason} ->
-              {:error, reason}
-          end
+          {:ok, _response} ->
+            Logger.info("ℹ️   Empty page received")
+            {:ok, processed_count}
 
-        {:ok, _response} ->
-          # No contacts found
-          {:ok, processed_count}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+          {:error, reason} ->
+            Logger.error("❌  Error fetching page: #{inspect(reason)}")
+            {:error, reason}
+        end
     end
   end
 
@@ -114,10 +135,20 @@ defmodule JumpstartAi.GoogleContactsService do
       |> Enum.map(&parse_contact_data/1)
       |> Enum.reject(&is_nil/1)
 
+    Logger.debug("⚙️   Processing batch of #{length(contact_details)} contacts")
+
     case process_fn.(contact_details) do
-      {:ok, _result} -> {:ok, length(contact_details)}
-      {:error, reason} -> {:error, reason}
-      :ok -> {:ok, length(contact_details)}
+      {:ok, _res} ->
+        Logger.debug("✅  Batch processed successfully")
+        {:ok, length(contact_details)}
+
+      {:error, reason} ->
+        Logger.error("❌  Batch failed: #{inspect(reason)}")
+        {:error, reason}
+
+      :ok ->
+        Logger.debug("✅  Batch processed successfully (returned :ok)")
+        {:ok, length(contact_details)}
     end
   end
 
@@ -126,35 +157,16 @@ defmodule JumpstartAi.GoogleContactsService do
     resource_name = connection["resourceName"]
     id = resource_name && String.replace(resource_name, "people/", "")
 
-    # Extract names
     names = connection["names"] || []
-
-    primary_name =
-      Enum.find(names, fn name -> name["metadata"]["primary"] end) || List.first(names)
-
-    # Extract email addresses
-    email_addresses = connection["emailAddresses"] || []
-
-    primary_email =
-      Enum.find(email_addresses, fn email -> email["metadata"]["primary"] end) ||
-        List.first(email_addresses)
-
-    # Extract phone numbers
-    phone_numbers = connection["phoneNumbers"] || []
-
-    primary_phone =
-      Enum.find(phone_numbers, fn phone -> phone["metadata"]["primary"] end) ||
-        List.first(phone_numbers)
-
-    # Extract organizations (for company info)
-    organizations = connection["organizations"] || []
-
-    primary_org =
-      Enum.find(organizations, fn org -> org["metadata"]["primary"] end) ||
-        List.first(organizations)
-
-    # Extract metadata for created/updated times
+    emails = connection["emailAddresses"] || []
+    phones = connection["phoneNumbers"] || []
+    orgs = connection["organizations"] || []
     metadata = connection["metadata"] || %{}
+
+    primary_name = Enum.find(names, & &1["metadata"]["primary"]) || List.first(names)
+    primary_email = Enum.find(emails, & &1["metadata"]["primary"]) || List.first(emails)
+    primary_phone = Enum.find(phones, & &1["metadata"]["primary"]) || List.first(phones)
+    primary_org = Enum.find(orgs, & &1["metadata"]["primary"]) || List.first(orgs)
 
     %{
       id: id,
@@ -166,12 +178,14 @@ defmodule JumpstartAi.GoogleContactsService do
       company: primary_org && primary_org["name"],
       created_at:
         format_google_timestamp(
-          metadata["sources"] && List.first(metadata["sources"]) &&
+          metadata["sources"] &&
+            List.first(metadata["sources"]) &&
             List.first(metadata["sources"])["updateTime"]
         ),
       updated_at:
         format_google_timestamp(
-          metadata["sources"] && List.first(metadata["sources"]) &&
+          metadata["sources"] &&
+            List.first(metadata["sources"]) &&
             List.first(metadata["sources"])["updateTime"]
         )
     }
@@ -179,9 +193,9 @@ defmodule JumpstartAi.GoogleContactsService do
 
   defp format_google_timestamp(nil), do: nil
 
-  defp format_google_timestamp(timestamp) when is_binary(timestamp) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, datetime, _} -> DateTime.to_iso8601(datetime)
+  defp format_google_timestamp(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _} -> DateTime.to_iso8601(dt)
       _ -> nil
     end
   end

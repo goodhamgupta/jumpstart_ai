@@ -490,19 +490,12 @@ defmodule JumpstartAi.Accounts.User do
 
           # Define the process function that will be called for each batch of contacts
           process_batch_fn = fn contacts ->
-            # Convert contact data to the format expected by the Contact resource
+            # Convert contact data to the format expected by the Contact resource  
             contact_inputs =
               Enum.map(contacts, fn contact_data ->
                 %{
-                  user_id: user.id,
-                  external_id: contact_data.id,
-                  email: contact_data.email,
-                  firstname: contact_data.firstname,
-                  lastname: contact_data.lastname,
-                  phone: contact_data.phone,
-                  company: contact_data.company,
-                  external_created_at: parse_contact_date(contact_data.created_at),
-                  external_updated_at: parse_contact_date(contact_data.updated_at)
+                  google_data: contact_data,
+                  user_id: user.id
                 }
               end)
 
