@@ -527,9 +527,9 @@ defmodule JumpstartAi.Accounts.User do
           # Use streaming approach to process contacts in batches
           case JumpstartAi.GoogleContactsService.stream_user_contacts(user,
                  # Fetch 50 contacts at a time from Google API
-                 batch_size: 50,
+                 batch_size: 5,
                  # Total of 500 contacts
-                 max_results: 500,
+                 max_results: 50,
                  process_fn: process_batch_fn
                ) do
             {:ok, total_processed} ->

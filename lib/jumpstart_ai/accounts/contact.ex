@@ -250,6 +250,86 @@ defmodule JumpstartAi.Accounts.Contact do
                  ilike(company, ^arg(:query))
              )
     end
+
+    action :semantic_search_contacts, {:array, :map} do
+      description """
+      Semantic search for contacts using vector similarity. Searches contact information, notes summary, and metadata for semantically similar content.
+      """
+
+      argument :query, :string do
+        allow_nil? false
+        description "The search query to find semantically similar contacts"
+      end
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of results to return (default: 10)"
+      end
+
+      argument :similarity_threshold, :float do
+        allow_nil? true
+        default 0.7
+        description "Minimum similarity score (0.0 to 1.0, default: 0.7)"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        search_query = input.arguments.query
+        limit = input.arguments.limit || 10
+        similarity_threshold = input.arguments.similarity_threshold || 0.7
+
+        # Generate embedding for the search query
+        case JumpstartAi.OpenAiEmbeddingModel.generate([search_query], []) do
+          {:ok, [search_vector]} ->
+            # Use raw SQL for now since Ash expressions are complex with vectors
+            sql_query = """
+            SELECT id, firstname, lastname, email, company, phone, lifecycle_stage, source, notes_summary
+            FROM contacts 
+            WHERE user_id = $1 
+              AND full_text_vector IS NOT NULL 
+              AND (full_text_vector <=> $2) >= $3
+            ORDER BY (full_text_vector <=> $2) DESC
+            LIMIT $4
+            """
+
+            case JumpstartAi.Repo.query(sql_query, [
+              Ecto.UUID.dump!(user_id),
+              search_vector,
+              similarity_threshold,
+              limit
+            ]) do
+              {:ok, %{rows: rows}} ->
+                formatted_contacts =
+                  Enum.map(rows, fn [id, firstname, lastname, email, company, phone, lifecycle_stage, source, notes_summary] ->
+                    %{
+                      "id" => Ecto.UUID.load!(id),
+                      "name" => "#{firstname || ""} #{lastname || ""}" |> String.trim(),
+                      "email" => email,
+                      "company" => company,
+                      "phone" => phone,
+                      "lifecycle_stage" => lifecycle_stage,
+                      "source" => source,
+                      "notes_summary" =>
+                        case notes_summary do
+                          nil -> nil
+                          text when byte_size(text) > 200 -> String.slice(text, 0, 200) <> "..."
+                          text -> text
+                        end
+                    }
+                  end)
+
+                {:ok, formatted_contacts}
+
+              {:error, error} ->
+                {:error, "Failed to search contacts: #{inspect(error)}"}
+            end
+
+          {:error, error} ->
+            {:error, "Failed to generate search embedding: #{inspect(error)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -265,8 +345,12 @@ defmodule JumpstartAi.Accounts.Contact do
       authorize_if AshAi.Checks.ActorIsAshAi
     end
     
-    policy action(:vectorize) do
+    bypass action(:vectorize) do
       authorize_if AshAi.Checks.ActorIsAshAi
+    end
+
+    bypass action(:semantic_search_contacts) do
+      authorize_if actor_present()
     end
 
     policy always() do

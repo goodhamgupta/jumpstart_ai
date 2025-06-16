@@ -44,7 +44,13 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
       # i.e tools: [:lookup_weather]
       |> AshAi.setup_ash_ai(
         otp_app: :jumpstart_ai,
-        tools: [:search_emails_by_from],
+        tools: [
+          :search_emails_by_from,
+          :semantic_search_emails,
+          :semantic_search_contacts,
+          :semantic_search_contact_notes,
+          :semantic_search_calendar_events
+        ],
         actor: context.actor
       )
       |> LLMChain.add_callback(%{

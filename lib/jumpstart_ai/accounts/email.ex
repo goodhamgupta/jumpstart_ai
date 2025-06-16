@@ -165,6 +165,91 @@ defmodule JumpstartAi.Accounts.Email do
       end
     end
 
+
+    action :semantic_search_emails, {:array, :map} do
+      description """
+      Semantic search for emails using vector similarity. Searches email content, subject, and metadata for semantically similar content.
+      """
+
+      argument :query, :string do
+        allow_nil? false
+        description "The search query to find semantically similar emails"
+      end
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of results to return (default: 10)"
+      end
+
+      argument :similarity_threshold, :float do
+        allow_nil? true
+        default 0.7
+        description "Minimum similarity score (0.0 to 1.0, default: 0.7)"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        search_query = input.arguments.query
+        limit = input.arguments.limit || 10
+        similarity_threshold = input.arguments.similarity_threshold || 0.7
+
+        # Generate embedding for the search query
+        case JumpstartAi.OpenAiEmbeddingModel.generate([search_query], []) do
+          {:ok, [search_vector]} ->
+            # Use raw SQL for vector similarity search
+            sql_query = """
+            SELECT id, subject, from_email, from_name, date, snippet, body_text, markdown_content
+            FROM emails 
+            WHERE user_id = $1 
+              AND full_text_vector IS NOT NULL 
+              AND (full_text_vector <=> $2) >= $3
+            ORDER BY (full_text_vector <=> $2) DESC
+            LIMIT $4
+            """
+
+            case JumpstartAi.Repo.query(sql_query, [
+              Ecto.UUID.dump!(user_id),
+              search_vector,
+              similarity_threshold,
+              limit
+            ]) do
+              {:ok, %{rows: rows}} ->
+                formatted_emails =
+                  Enum.map(rows, fn [id, subject, from_email, from_name, date, snippet, body_text, markdown_content] ->
+                    %{
+                      "id" => Ecto.UUID.load!(id),
+                      "subject" => subject || "No Subject",
+                      "from_email" => from_email,
+                      "from_name" => from_name,
+                      "date" => date && 
+                        (if is_struct(date, DateTime) do
+                          DateTime.to_iso8601(date)
+                        else
+                          NaiveDateTime.to_iso8601(date)
+                        end),
+                      "snippet" => snippet,
+                      "content_preview" =>
+                        case markdown_content || body_text do
+                          nil -> snippet
+                          text when byte_size(text) > 300 -> String.slice(text, 0, 300) <> "..."
+                          text -> text
+                        end
+                    }
+                  end)
+
+                {:ok, formatted_emails}
+
+              {:error, error} ->
+                {:error, "Failed to search emails: #{inspect(error)}"}
+            end
+
+          {:error, error} ->
+            {:error, "Failed to generate search embedding: #{inspect(error)}"}
+        end
+      end
+    end
+
     create :create_from_gmail do
       accept [
         :gmail_id,
@@ -297,8 +382,12 @@ defmodule JumpstartAi.Accounts.Email do
       authorize_if actor_present()
     end
 
-    policy action(:vectorize) do
+    bypass action(:vectorize) do
       authorize_if AshAi.Checks.ActorIsAshAi
+    end
+
+    bypass action(:semantic_search_emails) do
+      authorize_if actor_present()
     end
   end
 

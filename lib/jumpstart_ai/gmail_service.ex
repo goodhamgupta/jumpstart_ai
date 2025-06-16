@@ -40,8 +40,8 @@ defmodule JumpstartAi.GmailService do
   - process_fn: Function to call with each batch of processed emails
   """
   def stream_user_emails(user, opts \\ []) do
-    batch_size = Keyword.get(opts, :batch_size, 50)
-    max_results = Keyword.get(opts, :max_results, 500)
+    batch_size = Keyword.get(opts, :batch_size, 10)
+    max_results = Keyword.get(opts, :max_results, 50)
     process_fn = Keyword.get(opts, :process_fn, fn batch -> {:ok, batch} end)
 
     stream_emails_with_pagination(user, process_fn, batch_size, max_results, nil, 0)
