@@ -125,9 +125,6 @@ defmodule JumpstartAi.Accounts.User do
       # Required if you're using the password & confirmation strategies
       upsert_fields []
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
-      change set_attribute(:email_sync_status, "pending")
-      change set_attribute(:contact_sync_status, "pending")
-      change set_attribute(:calendar_sync_status, "pending")
 
       change after_action(fn _changeset, user, _context ->
                case user.confirmed_at do
@@ -136,8 +133,7 @@ defmodule JumpstartAi.Accounts.User do
 
                  _ ->
                    # Trigger email sync for Google OAuth users
-                   if not is_nil(user.google_access_token) and
-                        (is_nil(user.emails_synced_at) or user.email_sync_status == "pending") do
+                   if not is_nil(user.google_access_token) and is_nil(user.emails_synced_at) do
                      # Schedule job with a longer delay for new users to ensure tokens are properly set
                      # The EmailSync worker will handle cases where refresh token is missing
                      JumpstartAi.Workers.EmailSync.new(%{user_id: user.id})
@@ -145,16 +141,14 @@ defmodule JumpstartAi.Accounts.User do
                    end
 
                    # Trigger contact sync for Google OAuth users
-                   if not is_nil(user.google_access_token) and
-                        (is_nil(user.contacts_synced_at) or user.contact_sync_status == "pending") do
+                   if not is_nil(user.google_access_token) and is_nil(user.contacts_synced_at) do
                      # Schedule contact sync job
                      JumpstartAi.Workers.ContactSync.new(%{user_id: user.id})
                      |> Oban.insert(schedule_in: 15)
                    end
 
                    # Trigger calendar sync for Google OAuth users
-                   if not is_nil(user.google_access_token) and
-                        (is_nil(user.calendar_synced_at) or user.calendar_sync_status == "pending") do
+                   if not is_nil(user.google_access_token) and is_nil(user.calendar_synced_at) do
                      # Schedule calendar sync job
                      JumpstartAi.Workers.CalendarSync.new(%{user_id: user.id})
                      |> Oban.insert(schedule_in: 20)
@@ -331,9 +325,6 @@ defmodule JumpstartAi.Accounts.User do
       accept [
         :google_access_token,
         :google_token_expires_at,
-        :email_sync_status,
-        :contact_sync_status,
-        :calendar_sync_status,
         :hubspot_access_token,
         :hubspot_refresh_token,
         :hubspot_token_expires_at,
@@ -390,14 +381,11 @@ defmodule JumpstartAi.Accounts.User do
         # Check if user has Google access token
         if is_nil(user.google_access_token) do
           changeset
-          |> Ash.Changeset.change_attribute(:email_sync_status, "failed")
           |> Ash.Changeset.add_error(
-            field: :email_sync_status,
+            field: :google_access_token,
             message: "No Google access token available"
           )
         else
-          # Set to processing to indicate work is starting
-          changeset = Ash.Changeset.change_attribute(changeset, :email_sync_status, "processing")
 
           # Define the process function that will be called for each batch of emails
           process_batch_fn = fn emails ->
@@ -463,14 +451,12 @@ defmodule JumpstartAi.Accounts.User do
                ) do
             {:ok, total_processed} ->
               changeset
-              |> Ash.Changeset.change_attribute(:email_sync_status, "completed")
               |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
 
             {:error, reason} ->
               changeset
-              |> Ash.Changeset.change_attribute(:email_sync_status, "failed")
               |> Ash.Changeset.add_error(
-                field: :email_sync_status,
+                field: :emails_synced_at,
                 message: "Failed to sync emails: #{inspect(reason)}"
               )
           end
@@ -488,15 +474,11 @@ defmodule JumpstartAi.Accounts.User do
         # Check if user has Google access token
         if is_nil(user.google_access_token) do
           changeset
-          |> Ash.Changeset.change_attribute(:contact_sync_status, "failed")
           |> Ash.Changeset.add_error(
-            field: :contact_sync_status,
+            field: :google_access_token,
             message: "No Google access token available"
           )
         else
-          # Set to processing to indicate work is starting
-          changeset =
-            Ash.Changeset.change_attribute(changeset, :contact_sync_status, "processing")
 
           # Define the process function that will be called for each batch of contacts
           process_batch_fn = fn contacts ->
@@ -548,14 +530,12 @@ defmodule JumpstartAi.Accounts.User do
                ) do
             {:ok, total_processed} ->
               changeset
-              |> Ash.Changeset.change_attribute(:contact_sync_status, "completed")
               |> Ash.Changeset.change_attribute(:contacts_synced_at, DateTime.utc_now())
 
             {:error, reason} ->
               changeset
-              |> Ash.Changeset.change_attribute(:contact_sync_status, "failed")
               |> Ash.Changeset.add_error(
-                field: :contact_sync_status,
+                field: :contacts_synced_at,
                 message: "Failed to sync contacts: #{inspect(reason)}"
               )
           end
@@ -588,15 +568,11 @@ defmodule JumpstartAi.Accounts.User do
         # Check if user has Google access token
         if is_nil(user.google_access_token) do
           changeset
-          |> Ash.Changeset.change_attribute(:calendar_sync_status, "failed")
           |> Ash.Changeset.add_error(
-            field: :calendar_sync_status,
+            field: :google_access_token,
             message: "No Google access token available"
           )
         else
-          # Set to processing to indicate work is starting
-          changeset =
-            Ash.Changeset.change_attribute(changeset, :calendar_sync_status, "processing")
 
           # Define the process function that will be called for each batch of events
           process_batch_fn = fn events ->
@@ -657,14 +633,12 @@ defmodule JumpstartAi.Accounts.User do
                ) do
             {:ok, total_processed} ->
               changeset
-              |> Ash.Changeset.change_attribute(:calendar_sync_status, "completed")
               |> Ash.Changeset.change_attribute(:calendar_synced_at, DateTime.utc_now())
 
             {:error, reason} ->
               changeset
-              |> Ash.Changeset.change_attribute(:calendar_sync_status, "failed")
               |> Ash.Changeset.add_error(
-                field: :calendar_sync_status,
+                field: :calendar_synced_at,
                 message: "Failed to sync calendar events: #{inspect(reason)}"
               )
           end
@@ -707,23 +681,11 @@ defmodule JumpstartAi.Accounts.User do
       allow_nil? true
     end
 
-    attribute :email_sync_status, :string do
-      allow_nil? true
-    end
-
     attribute :emails_synced_at, :utc_datetime_usec do
       allow_nil? true
     end
 
-    attribute :contact_sync_status, :string do
-      allow_nil? true
-    end
-
     attribute :contacts_synced_at, :utc_datetime_usec do
-      allow_nil? true
-    end
-
-    attribute :calendar_sync_status, :string do
       allow_nil? true
     end
 

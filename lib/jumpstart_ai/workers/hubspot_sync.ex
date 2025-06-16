@@ -52,8 +52,13 @@ defmodule JumpstartAi.Workers.HubSpotSync do
         |> Ash.Query.for_read(:get_by_user, %{user_id: user.id})
         |> Ash.read!(authorize?: false)
 
+      # Only sync notes for HubSpot contacts - Google contacts won't have notes in HubSpot
+      hubspot_contacts = Enum.filter(contacts, fn contact -> contact.source == "hubspot" end)
+      
+      Logger.info("HubSpot Sync - Found #{length(hubspot_contacts)} HubSpot contacts out of #{length(contacts)} total contacts")
+
       notes_synced =
-        contacts
+        hubspot_contacts
         |> Enum.flat_map(&sync_contact_notes(user, &1))
         |> Enum.count(fn result -> match?({:ok, _}, result) end)
 
@@ -138,41 +143,35 @@ defmodule JumpstartAi.Workers.HubSpotSync do
     end
   end
 
-  defp sync_contact_notes(_user, contact) do
-    # For now, we'll implement basic note syncing
-    # In a real implementation, you would fetch notes from HubSpot's engagements API
-    # This is a placeholder that creates a summary note for each contact
-
-    if contact.notes_summary && String.length(contact.notes_summary) > 0 do
-      # Generate a unique note ID for this summary note
-      note_id = "summary_#{contact.external_id}_#{System.system_time(:second)}"
-
-      note_data = %{
-        contact_id: contact.id,
-        hubspot_note_id: note_id,
-        content: "Contact summary: #{contact.notes_summary}",
-        note_type: "SUMMARY",
-        created_at: contact.external_created_at,
-        updated_at: contact.external_updated_at
-      }
-
-      ContactNote
-      |> Ash.Changeset.for_create(:create_from_hubspot, %{hubspot_note_data: note_data})
-      |> Ash.create(authorize?: false)
-      |> case do
-        {:ok, note} ->
-          Logger.debug("HubSpot Sync - Created summary note for contact #{contact.external_id}")
-          [{:ok, note}]
-
-        {:error, error} ->
-          Logger.error(
-            "HubSpot Sync - Failed to create note for contact #{contact.external_id}: #{inspect(error)}"
-          )
-
-          [{:error, error}]
-      end
-    else
-      []
+  defp sync_contact_notes(user, contact) do
+    Logger.debug("HubSpot Sync - Fetching notes for contact #{contact.external_id}")
+    
+    case HubSpotService.fetch_contact_notes(user, contact.external_id) do
+      {:ok, notes} ->
+        Logger.debug("HubSpot Sync - Found #{length(notes)} notes for contact #{contact.external_id}")
+        
+        # Process each note and create ContactNote records
+        notes
+        |> Enum.map(fn note ->
+          note_data = Map.put(note, :contact_id, contact.id)
+          
+          ContactNote
+          |> Ash.Changeset.for_create(:create_from_hubspot, %{hubspot_note_data: note_data})
+          |> Ash.create(authorize?: false)
+          |> case do
+            {:ok, contact_note} ->
+              Logger.debug("HubSpot Sync - Created note #{note.hubspot_note_id} for contact #{contact.external_id}")
+              {:ok, contact_note}
+              
+            {:error, error} ->
+              Logger.error("HubSpot Sync - Failed to create note #{note.hubspot_note_id} for contact #{contact.external_id}: #{inspect(error)}")
+              {:error, error}
+          end
+        end)
+        
+      {:error, reason} ->
+        Logger.error("HubSpot Sync - Failed to fetch notes for contact #{contact.external_id}: #{inspect(reason)}")
+        []
     end
   end
 

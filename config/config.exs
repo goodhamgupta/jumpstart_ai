@@ -24,7 +24,13 @@ config :jumpstart_ai, Oban,
     calendar_sync: [limit: 10]
   ],
   repo: JumpstartAi.Repo,
-  plugins: [{Oban.Plugins.Cron, []}]
+  plugins: [
+    {Oban.Plugins.Cron,
+     crontab: [
+       # Run periodic sync scheduler every 5 minutes
+       {"*/5 * * * *", JumpstartAi.Workers.PeriodicSyncScheduler}
+     ]}
+  ]
 
 config :ash,
   allow_forbidden_field_for_relationships_by_default?: true,

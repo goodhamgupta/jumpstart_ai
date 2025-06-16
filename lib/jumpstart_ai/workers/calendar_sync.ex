@@ -9,9 +9,7 @@ defmodule JumpstartAi.Workers.CalendarSync do
       {:ok, user} ->
         IO.puts("CalendarSync – fetched user #{user_id}")
 
-        needs_sync? =
-          not is_nil(user.google_access_token) and
-            (is_nil(user.calendar_synced_at) or user.calendar_sync_status == "pending")
+        needs_sync? = not is_nil(user.google_access_token)
 
         cond do
           is_nil(user.google_access_token) ->
@@ -38,13 +36,9 @@ defmodule JumpstartAi.Workers.CalendarSync do
               {:error, error} ->
                 IO.inspect("CalendarSync – sync failed for user #{user_id}: #{inspect(error)}")
 
-                # If sync failed and we don't have a refresh token, set needs_reauth status
+                # If sync failed and we don't have a refresh token, log the issue
                 if is_nil(user.google_refresh_token) do
-                  user
-                  |> Ash.Changeset.for_update(:update, %{calendar_sync_status: "needs_reauth"},
-                    authorize?: false
-                  )
-                  |> Ash.update()
+                  IO.puts("CalendarSync – user #{user_id} has no refresh token for re-authentication")
                 end
 
                 {:error, error}

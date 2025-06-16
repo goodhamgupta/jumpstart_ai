@@ -166,6 +166,25 @@ defmodule JumpstartAi.HubSpotService do
   end
 
   @doc """
+  Fetches notes/engagements for a specific contact from HubSpot.
+  """
+  def fetch_contact_notes(user, contact_external_id) do
+    with {:ok, access_token} <- get_valid_access_token(user) do
+      # Get all notes and then filter for this contact's associations client-side
+      # HubSpot's associations API requires the contact to be associated with notes
+      case fetch_all_notes(access_token, contact_external_id) do
+        {:ok, notes} ->
+          Logger.debug("HubSpot - Found #{length(notes)} notes for contact #{contact_external_id}")
+          {:ok, notes}
+
+        {:error, reason} ->
+          Logger.error("HubSpot - Failed to fetch notes for contact #{contact_external_id}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
   Searches for contacts in HubSpot by query.
   """
   def search_contacts(user, query, opts \\ []) do
@@ -216,6 +235,82 @@ defmodule JumpstartAi.HubSpotService do
   end
 
   # Private helper functions
+
+  defp fetch_all_notes(access_token, contact_external_id) do
+    # Use the associations API to get notes for this specific contact
+    url = "#{@base_url}/crm/v4/objects/contacts/#{contact_external_id}/associations/notes"
+
+    headers = [
+      {"Authorization", "Bearer #{access_token}"},
+      {"Content-Type", "application/json"}
+    ]
+
+    case HTTPoison.get(url, headers) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, %{"results" => associated_notes}} ->
+            # Now fetch the actual note details
+            note_ids = Enum.map(associated_notes, fn assoc -> assoc["toObjectId"] end)
+            fetch_notes_by_ids(access_token, note_ids)
+
+          {:error, error} ->
+            Logger.error("HubSpot - Failed to parse note associations: #{inspect(error)}")
+            {:error, :parse_error}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: 404}} ->
+        # No associations found - this is normal, just return empty list
+        {:ok, []}
+
+      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
+        Logger.error("HubSpot - Note associations fetch failed with status #{status_code}: #{body}")
+        {:error, {:api_error, status_code}}
+
+      {:error, error} ->
+        Logger.error("HubSpot - Network error fetching note associations: #{inspect(error)}")
+        {:error, :network_error}
+    end
+  end
+
+  defp fetch_notes_by_ids(_access_token, []), do: {:ok, []}
+
+  defp fetch_notes_by_ids(access_token, note_ids) when is_list(note_ids) do
+    # Use batch read to get note details efficiently
+    url = "#{@base_url}/crm/v3/objects/notes/batch/read"
+
+    headers = [
+      {"Authorization", "Bearer #{access_token}"},
+      {"Content-Type", "application/json"}
+    ]
+
+    inputs = Enum.map(note_ids, fn id -> %{"id" => id} end)
+
+    body = Jason.encode!(%{
+      "inputs" => inputs,
+      "properties" => ["hs_note_body", "hs_created_at", "hs_lastmodifieddate", "hubspot_owner_id"]
+    })
+
+    case HTTPoison.post(url, body, headers) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+        case Jason.decode(response_body) do
+          {:ok, %{"results" => notes}} ->
+            normalized_notes = Enum.map(notes, &normalize_note/1)
+            {:ok, normalized_notes}
+
+          {:error, error} ->
+            Logger.error("HubSpot - Failed to parse batch notes response: #{inspect(error)}")
+            {:error, :parse_error}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: status_code, body: response_body}} ->
+        Logger.error("HubSpot - Batch notes fetch failed with status #{status_code}: #{response_body}")
+        {:error, {:api_error, status_code}}
+
+      {:error, error} ->
+        Logger.error("HubSpot - Network error fetching batch notes: #{inspect(error)}")
+        {:error, :network_error}
+    end
+  end
 
   defp fetch_all_contacts(access_token, limit, properties, after_cursor \\ nil, accumulated \\ []) do
     url = build_contacts_url(limit, properties, after_cursor)
@@ -289,6 +384,19 @@ defmodule JumpstartAi.HubSpotService do
       |> Enum.join("&")
 
     "#{base}?#{query_string}"
+  end
+
+  defp normalize_note(note_data) do
+    properties = note_data["properties"] || %{}
+
+    %{
+      hubspot_note_id: note_data["id"],
+      content: properties["hs_note_body"] || "",
+      note_type: "NOTE",
+      created_at: parse_datetime(properties["hs_created_at"]),
+      updated_at: parse_datetime(properties["hs_lastmodifieddate"]),
+      hubspot_owner_id: properties["hubspot_owner_id"]
+    }
   end
 
   defp normalize_contact(contact_data) do
