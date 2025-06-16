@@ -1,8 +1,7 @@
-defmodule JumpstartAi.ToolsTest do
+defmodule JumpstartAi.EmailToolsTest do
   use JumpstartAi.DataCase, async: true
 
   alias JumpstartAi.Accounts.{User, Email}
-  alias JumpstartAi.Tools
 
   describe "search_emails_by_from action" do
     setup do
@@ -96,7 +95,7 @@ defmodule JumpstartAi.ToolsTest do
     test "searches emails by exact from_email match", %{user: user} do
       # Test searching for sender1@example.com
       {:ok, result} =
-        Tools
+        Email
         |> Ash.ActionInput.for_action(:search_emails_by_from, %{from_email: "sender1@example.com"})
         |> Ash.run_action(actor: user)
 
@@ -114,7 +113,7 @@ defmodule JumpstartAi.ToolsTest do
     test "searches emails by partial from_email match", %{user: user} do
       # Test searching for partial match
       {:ok, result} =
-        Tools
+        Email
         |> Ash.ActionInput.for_action(:search_emails_by_from, %{from_email: "sender2"})
         |> Ash.run_action(actor: user)
 
@@ -124,7 +123,7 @@ defmodule JumpstartAi.ToolsTest do
 
     test "returns empty list when no emails match", %{user: user} do
       {:ok, result} =
-        Tools
+        Email
         |> Ash.ActionInput.for_action(:search_emails_by_from, %{
           from_email: "nonexistent@example.com"
         })
@@ -158,7 +157,7 @@ defmodule JumpstartAi.ToolsTest do
 
       # Search as the other user should return no results
       {:ok, result} =
-        Tools
+        Email
         |> Ash.ActionInput.for_action(:search_emails_by_from, %{from_email: "sender1@example.com"})
         |> Ash.run_action(actor: other_user)
 
@@ -167,7 +166,7 @@ defmodule JumpstartAi.ToolsTest do
 
     test "formats email data correctly", %{user: user} do
       {:ok, result} =
-        Tools
+        Email
         |> Ash.ActionInput.for_action(:search_emails_by_from, %{from_email: "sender1@example.com"})
         |> Ash.run_action(actor: user)
 
@@ -201,7 +200,7 @@ defmodule JumpstartAi.ToolsTest do
       |> Ash.create!(actor: user, authorize?: false)
 
       {:ok, result} =
-        Tools
+        Email
         |> Ash.ActionInput.for_action(:search_emails_by_from, %{from_email: "long@example.com"})
         |> Ash.run_action(actor: user)
 

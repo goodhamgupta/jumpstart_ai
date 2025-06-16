@@ -4,7 +4,7 @@ defmodule JumpstartAi.Accounts do
     extensions: [AshAi]
 
   tools do
-    tool :search_emails_by_from, JumpstartAi.Tools, :search_emails_by_from
+    tool :search_emails_by_from, JumpstartAi.Accounts.Email, :search_emails_by_from
   end
 
   resources do
@@ -14,6 +14,5 @@ defmodule JumpstartAi.Accounts do
     resource JumpstartAi.Accounts.Contact
     resource JumpstartAi.Accounts.ContactNote
     resource JumpstartAi.Accounts.CalendarEvent
-    resource JumpstartAi.Tools
   end
 end
