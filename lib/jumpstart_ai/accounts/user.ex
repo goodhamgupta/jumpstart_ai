@@ -328,7 +328,10 @@ defmodule JumpstartAi.Accounts.User do
         :hubspot_access_token,
         :hubspot_refresh_token,
         :hubspot_token_expires_at,
-        :hubspot_portal_id
+        :hubspot_portal_id,
+        :emails_synced_at,
+        :contacts_synced_at,
+        :calendar_synced_at
       ]
     end
 

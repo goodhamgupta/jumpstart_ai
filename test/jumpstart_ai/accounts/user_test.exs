@@ -103,11 +103,7 @@ defmodule JumpstartAi.Accounts.UserTest do
         )
         |> Ash.create()
 
-      # Update the user to set email sync status
-      {:ok, user} =
-        user
-        |> Ash.Changeset.for_update(:update, %{email_sync_status: "pending"}, authorize?: false)
-        |> Ash.update()
+      # User is created without emails_synced_at, so they are ready for sync
 
       %{user: user}
     end

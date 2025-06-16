@@ -26,11 +26,8 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
         )
         |> Ash.create()
 
-      # Set email sync status to pending
-      {:ok, user} =
-        user
-        |> Ash.Changeset.for_update(:update, %{email_sync_status: "pending"}, authorize?: false)
-        |> Ash.update()
+      # User doesn't need a separate sync status anymore since we use emails_synced_at
+      # The sync status is determined by whether emails_synced_at is nil
 
       # Create a job with the user_id
       _job = %Oban.Job{args: %{"user_id" => user.id}}
@@ -62,8 +59,7 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
         |> Ash.Changeset.for_update(
           :update,
           %{
-            google_access_token: nil,
-            email_sync_status: "pending"
+            google_access_token: nil
           },
           authorize?: false
         )
@@ -86,9 +82,8 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       assert {:error, _error} = result
     end
 
-    test "perform/1 handles user with completed sync status but no emails_synced_at" do
-      # Create a user that has completed status but no emails_synced_at
-      # (which means sync will still happen due to emails_synced_at being nil)
+    test "perform/1 handles user with emails_synced_at set but needs re-sync" do
+      # Create a user that has emails_synced_at set but may need re-sync
       {:ok, user} =
         User
         |> Ash.Changeset.for_create(
@@ -107,13 +102,13 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
         )
         |> Ash.create()
 
-      # Update to show already synced
+      # Update to show already synced by setting emails_synced_at
       {:ok, user} =
         user
         |> Ash.Changeset.for_update(
           :update,
           %{
-            email_sync_status: "completed"
+            emails_synced_at: DateTime.utc_now()
           },
           authorize?: false
         )
@@ -121,7 +116,7 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
 
       job = %Oban.Job{args: %{"user_id" => user.id}}
 
-      # Test that worker attempts sync (due to emails_synced_at being nil)
+      # Test that worker can handle a user that has already been synced
       # but it will likely fail due to invalid tokens
       result = EmailSync.perform(job)
 
@@ -130,8 +125,8 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
       assert result == :ok or match?({:error, _}, result)
     end
 
-    test "perform/1 handles user with pending sync status" do
-      # Create a user that needs sync (has access token and pending status)
+    test "perform/1 handles user that needs sync" do
+      # Create a user that needs sync (has access token but no emails_synced_at)
       {:ok, user} =
         User
         |> Ash.Changeset.for_create(
@@ -151,11 +146,7 @@ defmodule JumpstartAi.Workers.EmailSyncTest do
         )
         |> Ash.create()
 
-      # Set to pending status
-      {:ok, user} =
-        user
-        |> Ash.Changeset.for_update(:update, %{email_sync_status: "pending"}, authorize?: false)
-        |> Ash.update()
+      # User is created without emails_synced_at, so sync should happen
 
       job = %Oban.Job{args: %{"user_id" => user.id}}
 
