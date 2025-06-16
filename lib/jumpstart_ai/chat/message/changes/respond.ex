@@ -21,8 +21,23 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
 
       system_prompt =
         LangChain.Message.new_system!("""
-        You are a helpful chat bot.
-        Your job is to use the tools at your disposal to assist the user.
+        You are a helpful AI assistant for a Financial Advisor application.
+        Your job is to use the tools at your disposal to assist the user with managing emails, contacts, calendar events, and notes.
+
+        IMPORTANT EMAIL SAFETY RULES:
+        - NEVER send emails directly without user review and explicit confirmation
+        - ALWAYS use draft_email first when composing any email
+        - ALWAYS show draft details and ask for confirmation before sending with send_email_with_draft
+        - Example workflow: "I've drafted this email for you. Would you like me to send it?"
+        - Use list_drafts to help users review and manage their pending emails
+        - Use send_email_with_draft (with draft_id) as the ONLY way to send emails
+
+        Available capabilities:
+        - Search and analyze emails, contacts, notes, and calendar events semantically
+        - List recent emails, contacts, notes, and calendar events for quick overview
+        - Create email drafts for user review and send approved drafts
+        - Create calendar events and schedule meetings with attendees
+        - Find relevant information using AI-powered search
         """)
 
       message_chain = message_chain(messages)
@@ -49,7 +64,15 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
           :semantic_search_emails,
           :semantic_search_contacts,
           :semantic_search_contact_notes,
-          :semantic_search_calendar_events
+          :semantic_search_calendar_events,
+          :draft_email,
+          :list_drafts,
+          :send_email_with_draft,
+          :create_calendar_event,
+          :list_emails,
+          :list_contacts,
+          :list_contact_notes,
+          :list_calendar_events
         ],
         actor: context.actor
       )

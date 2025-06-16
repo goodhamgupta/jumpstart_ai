@@ -35,8 +35,8 @@ defmodule JumpstartAi.GmailService do
   This allows for processing emails in smaller chunks instead of loading all into memory.
 
   Options:
-  - batch_size: Number of emails to fetch per batch (default: 50)
-  - max_results: Maximum total emails to fetch (default: 500)
+  - batch_size: Number of emails to fetch per batch (default: 10)
+  - max_results: Maximum total emails to fetch (default: 50)
   - process_fn: Function to call with each batch of processed emails
   """
   def stream_user_emails(user, opts \\ []) do
@@ -281,5 +281,116 @@ defmodule JumpstartAi.GmailService do
       2 -> data <> "=="
       3 -> data <> "="
     end
+  end
+
+  @doc """
+  Drafts an email for a user
+  """
+  def draft_email(user, email_params) do
+    email_data = %{
+      to: email_params[:to] || email_params["to"],
+      cc: email_params[:cc] || email_params["cc"],
+      bcc: email_params[:bcc] || email_params["bcc"],
+      subject: email_params[:subject] || email_params["subject"],
+      body: email_params[:body] || email_params["body"]
+    }
+
+    case GmailClient.draft_email(user, email_data) do
+      {:ok, draft_response} ->
+        {:ok, %{
+          draft_id: draft_response["id"],
+          message_id: draft_response["message"]["id"],
+          thread_id: draft_response["message"]["threadId"]
+        }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Sends an email for a user
+  """
+  def send_email(user, email_params) do
+    email_data = %{
+      to: email_params[:to] || email_params["to"],
+      cc: email_params[:cc] || email_params["cc"],
+      bcc: email_params[:bcc] || email_params["bcc"],
+      subject: email_params[:subject] || email_params["subject"],
+      body: email_params[:body] || email_params["body"]
+    }
+
+    case GmailClient.send_email(user, email_data) do
+      {:ok, message_response} ->
+        {:ok, %{
+          message_id: message_response["id"],
+          thread_id: message_response["threadId"],
+          label_ids: message_response["labelIds"] || []
+        }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Lists drafts for a user and parses them for easier consumption
+  """
+  def list_drafts(user, opts \\ []) do
+    case GmailClient.list_drafts(user, opts) do
+      {:ok, %{"drafts" => drafts}} when is_list(drafts) ->
+        # Get detailed information for each draft
+        draft_details =
+          Enum.map(drafts, fn draft ->
+            case GmailClient.get_draft(user, draft["id"]) do
+              {:ok, draft_data} -> parse_draft_data(draft_data)
+              {:error, _} -> nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, draft_details}
+
+      {:ok, _response} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Sends an existing draft by draft ID
+  """
+  def send_draft(user, draft_id) do
+    case GmailClient.send_draft(user, draft_id) do
+      {:ok, message_response} ->
+        {:ok, %{
+          message_id: message_response["id"],
+          thread_id: message_response["threadId"],
+          label_ids: message_response["labelIds"] || []
+        }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_draft_data(draft_data) do
+    message = draft_data["message"]
+    payload = message["payload"]
+    headers = payload["headers"] || []
+
+    %{
+      draft_id: draft_data["id"],
+      message_id: message["id"],
+      thread_id: message["threadId"],
+      subject: get_header_value(headers, "Subject"),
+      to: get_header_value(headers, "To"),
+      cc: get_header_value(headers, "Cc"),
+      bcc: get_header_value(headers, "Bcc"),
+      snippet: message["snippet"],
+      created_at: draft_data["message"]["internalDate"]
+    }
   end
 end

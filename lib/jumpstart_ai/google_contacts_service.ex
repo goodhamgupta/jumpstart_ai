@@ -38,13 +38,13 @@ defmodule JumpstartAi.GoogleContactsService do
   Streams contacts in batches, processing and yielding each batch as it's fetched.
 
   Options:
-    • :batch_size   – contacts per request (default 50)
-    • :max_results  – hard cap on contacts (default 500)
+    • :batch_size   – contacts per request (default 10)
+    • :max_results  – hard cap on contacts (default 50)
     • :process_fn   – fn(batch) -> {:ok | :error, _}
   """
   def stream_user_contacts(user, opts \\ []) do
-    batch_size = Keyword.get(opts, :batch_size, 50)
-    max_results = Keyword.get(opts, :max_results, 500)
+    batch_size = Keyword.get(opts, :batch_size, 10)
+    max_results = Keyword.get(opts, :max_results, 50)
     process_fn = Keyword.get(opts, :process_fn, fn batch -> {:ok, batch} end)
 
     Logger.info(

@@ -145,6 +145,120 @@ defmodule JumpstartAi.GmailClient do
     |> Ash.update()
   end
 
+  @doc """
+  Drafts an email and saves it to Gmail
+  """
+  def draft_email(user, email_data) do
+    with {:ok, access_token} <- get_valid_access_token(user),
+         {:ok, draft_payload} <- build_draft_payload(email_data),
+         {:ok, response} <- make_gmail_post_request(access_token, "/users/me/drafts", draft_payload) do
+      {:ok, response}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Sends an email directly through Gmail
+  """
+  def send_email(user, email_data) do
+    with {:ok, access_token} <- get_valid_access_token(user),
+         {:ok, message_payload} <- build_message_payload(email_data),
+         {:ok, response} <- make_gmail_post_request(access_token, "/users/me/messages/send", message_payload) do
+      {:ok, response}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Lists all drafts for a user
+  """
+  def list_drafts(user, opts \\ []) do
+    with {:ok, access_token} <- get_valid_access_token(user),
+         {:ok, response} <- make_gmail_request(access_token, "/users/me/drafts", opts) do
+      {:ok, response}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets a specific draft by ID with full details
+  """
+  def get_draft(user, draft_id) do
+    with {:ok, access_token} <- get_valid_access_token(user),
+         {:ok, response} <- make_gmail_request(access_token, "/users/me/drafts/#{draft_id}") do
+      {:ok, response}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Sends a draft by draft ID
+  """
+  def send_draft(user, draft_id) do
+    with {:ok, access_token} <- get_valid_access_token(user),
+         {:ok, response} <- make_gmail_post_request(access_token, "/users/me/drafts/#{draft_id}/send", %{}) do
+      {:ok, response}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_draft_payload(email_data) do
+    case build_message_payload(email_data) do
+      {:ok, message_payload} ->
+        {:ok, %{"message" => message_payload["message"]}}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp build_message_payload(email_data) do
+    try do
+      # Build email headers - Gmail requires From header
+      headers = []
+      # Add From header (use the authenticated user's email)
+      headers = [{"From", email_data[:from] || email_data[:to]} | headers]
+      headers = if email_data[:to], do: [{"To", email_data.to} | headers], else: headers
+      headers = if email_data[:cc], do: [{"Cc", email_data.cc} | headers], else: headers
+      headers = if email_data[:bcc], do: [{"Bcc", email_data.bcc} | headers], else: headers
+      headers = if email_data[:subject], do: [{"Subject", email_data.subject} | headers], else: headers
+      headers = [{"Content-Type", "text/plain; charset=utf-8"} | headers]
+
+      # Build the raw email message
+      header_string = 
+        headers
+        |> Enum.map(fn {key, value} -> "#{key}: #{value}" end)
+        |> Enum.join("\r\n")
+
+      body = email_data[:body] || ""
+      raw_message = header_string <> "\r\n\r\n" <> body
+
+      # Encode the message in base64url format (Gmail requirement)
+      encoded_message = 
+        raw_message
+        |> Base.encode64()
+        |> String.replace("+", "-")
+        |> String.replace("/", "_")
+        |> String.replace("=", "")
+
+      payload = %{
+        "message" => %{
+          "raw" => encoded_message
+        }
+      }
+
+      {:ok, payload}
+    rescue
+      error ->
+        Logger.error("Failed to build email payload: #{inspect(error)}")
+        {:error, "Failed to build email payload"}
+    end
+  end
+
   defp make_gmail_request(access_token, path, params \\ []) do
     url = @gmail_api_base_url <> path
     headers = [{"Authorization", "Bearer #{access_token}"}]
@@ -171,6 +285,33 @@ defmodule JumpstartAi.GmailClient do
 
       {:error, reason} ->
         Logger.error("Gmail API request failed: #{inspect(reason)}")
+        {:error, "Gmail API request failed"}
+    end
+  end
+
+  defp make_gmail_post_request(access_token, path, payload) do
+    url = @gmail_api_base_url <> path
+    headers = [
+      {"Authorization", "Bearer #{access_token}"},
+      {"Content-Type", "application/json"}
+    ]
+
+    case HTTPoison.post(url, Jason.encode!(payload), headers) do
+      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} when status_code in [200, 201] ->
+        case Jason.decode(body) do
+          {:ok, data} -> {:ok, data}
+          {:error, _} -> {:error, "Failed to decode Gmail API response"}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: 401}} ->
+        {:error, "Unauthorized - token may be invalid"}
+
+      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
+        Logger.error("Gmail API POST request failed with status #{status_code}: #{body}")
+        {:error, "Gmail API request failed: #{body}"}
+
+      {:error, reason} ->
+        Logger.error("Gmail API POST request failed: #{inspect(reason)}")
         {:error, "Gmail API request failed"}
     end
   end

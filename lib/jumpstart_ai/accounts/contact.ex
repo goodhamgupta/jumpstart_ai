@@ -330,6 +330,49 @@ defmodule JumpstartAi.Accounts.Contact do
         end
       end
     end
+
+    action :list_contacts, {:array, :map} do
+      description """
+      Lists the latest contacts for the user. Returns the 10 most recent contacts with key details.
+      """
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of contacts to return (default: 10)"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        limit = input.arguments[:limit] || 10
+
+        case JumpstartAi.Accounts.Contact
+             |> Ash.Query.for_read(:get_by_user, %{user_id: user_id})
+             |> Ash.Query.select([:firstname, :lastname, :email, :company, :phone, :lifecycle_stage, :source, :external_updated_at])
+             |> Ash.Query.sort(external_updated_at: :desc)
+             |> Ash.Query.limit(limit)
+             |> Ash.read(actor: context.actor, authorize?: false) do
+          {:ok, contacts} ->
+            formatted_contacts =
+              Enum.map(contacts, fn contact ->
+                %{
+                  "name" => "#{contact.firstname || ""} #{contact.lastname || ""}" |> String.trim(),
+                  "email" => contact.email,
+                  "company" => contact.company,
+                  "phone" => contact.phone,
+                  "lifecycle_stage" => contact.lifecycle_stage,
+                  "source" => contact.source,
+                  "last_updated" => contact.external_updated_at && DateTime.to_iso8601(contact.external_updated_at)
+                }
+              end)
+
+            {:ok, formatted_contacts}
+
+          {:error, reason} ->
+            {:error, "Failed to list contacts: #{inspect(reason)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -350,6 +393,10 @@ defmodule JumpstartAi.Accounts.Contact do
     end
 
     bypass action(:semantic_search_contacts) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:list_contacts) do
       authorize_if actor_present()
     end
 

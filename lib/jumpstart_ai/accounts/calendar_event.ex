@@ -75,6 +75,12 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
       prepare build(sort: [start_time: :asc], limit: arg(:limit))
     end
 
+    read :list_by_user do
+      description "List all events for a user"
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
+    end
+
     read :find_by_time_range do
       description "Find events within a time range"
       argument :user_id, :uuid, allow_nil?: false
@@ -450,6 +456,193 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
       change AshAi.Changes.Vectorize
       require_atomic? false
     end
+
+    action :create_calendar_event, :map do
+      description """
+      Creates a new calendar event and saves it to Google Calendar. Returns event information.
+      This is a comprehensive action for creating calendar events with attendees, location, and timing.
+      """
+
+      argument :title, :string do
+        allow_nil? false
+        description "Event title/summary"
+      end
+
+      argument :description, :string do
+        allow_nil? true
+        description "Event description/agenda"
+      end
+
+      argument :location, :string do
+        allow_nil? true
+        description "Event location (physical address or virtual meeting link)"
+      end
+
+      argument :start_time, :utc_datetime do
+        allow_nil? false
+        description "Event start time (UTC datetime)"
+      end
+
+      argument :end_time, :utc_datetime do
+        allow_nil? false
+        description "Event end time (UTC datetime)"
+      end
+
+      argument :attendee_emails, {:array, :string} do
+        allow_nil? true
+        default []
+        description "List of attendee email addresses"
+      end
+
+      argument :calendar_id, :string do
+        allow_nil? true
+        default "primary"
+        description "Calendar ID to create the event in (default: primary)"
+      end
+
+      argument :send_notifications, :boolean do
+        allow_nil? true
+        default true
+        description "Whether to send email notifications to attendees (default: true)"
+      end
+
+      run fn input, context ->
+        user = context.actor
+
+        # Validate start and end times
+        if DateTime.compare(input.arguments.start_time, input.arguments.end_time) != :lt do
+          {:error, "Start time must be before end time"}
+        else
+          # Prepare event parameters for Google Calendar API
+          event_params = %{
+            title: input.arguments.title,
+            description: input.arguments.description,
+            location: input.arguments.location,
+            start_time: input.arguments.start_time,
+            end_time: input.arguments.end_time,
+            attendees: input.arguments.attendee_emails || []
+          }
+
+          calendar_id = input.arguments.calendar_id || "primary"
+
+          # Create event in Google Calendar
+          case JumpstartAi.CalendarService.create_event(user, event_params, calendar_id) do
+            {:ok, parsed_event} ->
+
+              # Also create local record for sync
+              local_event_params = %{
+                user_id: user.id,
+                google_event_id: parsed_event.id,
+                summary: parsed_event.summary,
+                description: parsed_event.description,
+                location: parsed_event.location,
+                start_time: parsed_event.start_time,
+                end_time: parsed_event.end_time,
+                attendees: Jason.encode!(parsed_event.attendees),
+                creator: parsed_event.creator,
+                organizer: parsed_event.organizer,
+                status: parsed_event.status,
+                html_link: parsed_event.html_link,
+                google_created_at: parsed_event.created,
+                google_updated_at: parsed_event.updated
+              }
+
+              case JumpstartAi.Accounts.CalendarEvent
+                   |> Ash.Changeset.for_create(:create_from_google, %{google_data: parsed_event})
+                   |> Ash.Changeset.change_attribute(:user_id, user.id)
+                   |> Ash.create(actor: user, authorize?: false) do
+                {:ok, _local_event} ->
+                  {:ok, %{
+                    "status" => "success",
+                    "message" => "Calendar event created successfully",
+                    "event_id" => parsed_event.id,
+                    "title" => parsed_event.summary,
+                    "start_time" => parsed_event.start_time && DateTime.to_iso8601(parsed_event.start_time),
+                    "end_time" => parsed_event.end_time && DateTime.to_iso8601(parsed_event.end_time),
+                    "location" => parsed_event.location,
+                    "attendees" => Enum.map(parsed_event.attendees, &(&1.email)),
+                    "html_link" => parsed_event.html_link
+                  }}
+
+                {:error, _error} ->
+                  # Event created in Google but failed to save locally - still return success
+                  {:ok, %{
+                    "status" => "success",
+                    "message" => "Calendar event created successfully (Google Calendar only)",
+                    "event_id" => parsed_event.id,
+                    "title" => parsed_event.summary,
+                    "start_time" => parsed_event.start_time && DateTime.to_iso8601(parsed_event.start_time),
+                    "end_time" => parsed_event.end_time && DateTime.to_iso8601(parsed_event.end_time),
+                    "location" => parsed_event.location,
+                    "attendees" => Enum.map(parsed_event.attendees, &(&1.email)),
+                    "html_link" => parsed_event.html_link
+                  }}
+              end
+
+            {:error, reason} ->
+              {:error, "Failed to create calendar event: #{reason}"}
+          end
+        end
+      end
+    end
+
+    action :list_calendar_events, {:array, :map} do
+      description """
+      Lists the latest calendar events for the user. Returns the 10 most recent events with key details.
+      """
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of calendar events to return (default: 10)"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        limit = input.arguments[:limit] || 10
+
+        case JumpstartAi.Accounts.CalendarEvent
+             |> Ash.Query.for_read(:list_by_user, %{user_id: user_id})
+             |> Ash.Query.select([:summary, :location, :start_time, :end_time, :attendees, :organizer, :status])
+             |> Ash.Query.sort(start_time: :desc)
+             |> Ash.Query.limit(limit)
+             |> Ash.read(actor: context.actor, authorize?: false) do
+          {:ok, events} ->
+            formatted_events =
+              Enum.map(events, fn event ->
+                # Parse attendees from JSON string  
+                attendees_list = case Jason.decode(event.attendees || "[]") do
+                  {:ok, parsed_attendees} when is_list(parsed_attendees) ->
+                    parsed_attendees
+                    |> Enum.map(fn attendee ->
+                      case attendee do
+                        %{"email" => email} -> email
+                        email when is_binary(email) -> email
+                        _ -> "Unknown"
+                      end
+                    end)
+                    |> Enum.take(3)  # Limit to first 3 attendees for brevity
+                  _ -> []
+                end
+
+                %{
+                  "summary" => event.summary || "Untitled Event",
+                  "location" => event.location,
+                  "start_time" => event.start_time && DateTime.to_iso8601(event.start_time),
+                  "end_time" => event.end_time && DateTime.to_iso8601(event.end_time),
+                  "organizer" => event.organizer,
+                  "status" => event.status,
+                  "attendees" => attendees_list
+                }
+              end)
+
+            {:ok, formatted_events}
+
+          {:error, reason} ->
+            {:error, "Failed to list calendar events: #{inspect(reason)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -481,6 +674,14 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
     end
 
     bypass action(:semantic_search_calendar_events) do
+      authorize_if actor_present()
+    end
+
+    policy action(:create_calendar_event) do
+      authorize_if actor_present()
+    end
+
+    policy action(:list_calendar_events) do
       authorize_if actor_present()
     end
   end
@@ -593,5 +794,6 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
   identities do
     identity :unique_google_event_per_user, [:user_id, :google_event_id]
   end
+
 
 end

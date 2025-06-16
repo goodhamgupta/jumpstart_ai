@@ -274,6 +274,65 @@ defmodule JumpstartAi.Accounts.ContactNote do
         end
       end
     end
+
+    action :list_contact_notes, {:array, :map} do
+      description """
+      Lists the latest contact notes. Returns the 10 most recent notes with key details.
+      """
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of contact notes to return (default: 10)"
+      end
+
+      argument :contact_id, :uuid do
+        allow_nil? true
+        description "Optional: filter notes for a specific contact"
+      end
+
+      run fn input, context ->
+        limit = input.arguments[:limit] || 10
+        contact_id = input.arguments[:contact_id]
+
+        query = if contact_id do
+          JumpstartAi.Accounts.ContactNote
+          |> Ash.Query.for_read(:get_by_contact, %{contact_id: contact_id})
+        else
+          JumpstartAi.Accounts.ContactNote
+          |> Ash.Query.for_read(:read)
+        end
+
+        query = query
+                |> Ash.Query.select([:contact_id, :content, :note_type, :source, :external_created_at])
+                |> Ash.Query.sort(external_created_at: :desc)
+                |> Ash.Query.limit(limit)
+
+        case Ash.read(query, actor: context.actor, authorize?: false) do
+          {:ok, notes} ->
+            formatted_notes =
+              Enum.map(notes, fn note ->
+                %{
+                  "contact_id" => note.contact_id,
+                  "note_type" => note.note_type || "NOTE",
+                  "source" => note.source,
+                  "created_at" => note.external_created_at && DateTime.to_iso8601(note.external_created_at),
+                  "content_preview" =>
+                    case note.content do
+                      nil -> "No content"
+                      text when byte_size(text) > 200 -> String.slice(text, 0, 200) <> "..."
+                      text -> text
+                    end
+                }
+              end)
+
+            {:ok, formatted_notes}
+
+          {:error, reason} ->
+            {:error, "Failed to list contact notes: #{inspect(reason)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -294,6 +353,10 @@ defmodule JumpstartAi.Accounts.ContactNote do
     end
 
     bypass action(:semantic_search_contact_notes) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:list_contact_notes) do
       authorize_if actor_present()
     end
 

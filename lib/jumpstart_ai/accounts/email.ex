@@ -178,7 +178,7 @@ defmodule JumpstartAi.Accounts.Email do
 
       argument :limit, :integer do
         allow_nil? true
-        default 10
+        default 20
         description "Maximum number of results to return (default: 10)"
       end
 
@@ -191,7 +191,7 @@ defmodule JumpstartAi.Accounts.Email do
       run fn input, context ->
         user_id = context.actor.id
         search_query = input.arguments.query
-        limit = input.arguments.limit || 10
+        limit = input.arguments.limit || 20
         similarity_threshold = input.arguments.similarity_threshold || 0.7
 
         # Generate embedding for the search query
@@ -200,9 +200,9 @@ defmodule JumpstartAi.Accounts.Email do
             # Use raw SQL for vector similarity search
             sql_query = """
             SELECT id, subject, from_email, from_name, date, snippet, body_text, markdown_content
-            FROM emails 
-            WHERE user_id = $1 
-              AND full_text_vector IS NOT NULL 
+            FROM emails
+            WHERE user_id = $1
+              AND full_text_vector IS NOT NULL
               AND (full_text_vector <=> $2) >= $3
             ORDER BY (full_text_vector <=> $2) DESC
             LIMIT $4
@@ -222,7 +222,7 @@ defmodule JumpstartAi.Accounts.Email do
                       "subject" => subject || "No Subject",
                       "from_email" => from_email,
                       "from_name" => from_name,
-                      "date" => date && 
+                      "date" => date &&
                         (if is_struct(date, DateTime) do
                           DateTime.to_iso8601(date)
                         else
@@ -355,6 +355,274 @@ defmodule JumpstartAi.Accounts.Email do
             """
           )
     end
+
+    action :draft_email, :map do
+      description """
+      Drafts a new email and saves it to Gmail. Returns draft information.
+      """
+
+      argument :to, :string do
+        allow_nil? false
+        description "Recipient email address"
+      end
+
+      argument :subject, :string do
+        allow_nil? false
+        description "Email subject"
+      end
+
+      argument :body, :string do
+        allow_nil? false
+        description "Email body content"
+      end
+
+      argument :cc, :string do
+        allow_nil? true
+        description "CC recipients (comma-separated)"
+      end
+
+      argument :bcc, :string do
+        allow_nil? true
+        description "BCC recipients (comma-separated)"
+      end
+
+      run fn input, context ->
+        user = context.actor
+
+        email_params = %{
+          to: input.arguments.to,
+          subject: input.arguments.subject,
+          body: input.arguments.body,
+          cc: input.arguments[:cc],
+          bcc: input.arguments[:bcc]
+        }
+
+        case JumpstartAi.GmailService.draft_email(user, email_params) do
+          {:ok, draft_info} ->
+            {:ok, %{
+              "status" => "success",
+              "message" => "Email drafted successfully",
+              "draft_id" => draft_info.draft_id,
+              "message_id" => draft_info.message_id,
+              "thread_id" => draft_info.thread_id,
+              "to" => input.arguments.to,
+              "subject" => input.arguments.subject
+            }}
+
+          {:error, reason} ->
+            {:error, "Failed to draft email: #{reason}"}
+        end
+      end
+    end
+
+    action :send_email, :map do
+      description """
+      Sends a new email through Gmail. Returns send confirmation.
+      """
+
+      argument :to, :string do
+        allow_nil? false
+        description "Recipient email address"
+      end
+
+      argument :subject, :string do
+        allow_nil? false
+        description "Email subject"
+      end
+
+      argument :body, :string do
+        allow_nil? false
+        description "Email body content"
+      end
+
+      argument :cc, :string do
+        allow_nil? true
+        description "CC recipients (comma-separated)"
+      end
+
+      argument :bcc, :string do
+        allow_nil? true
+        description "BCC recipients (comma-separated)"
+      end
+
+      run fn input, context ->
+        user = context.actor
+
+        email_params = %{
+          to: input.arguments.to,
+          subject: input.arguments.subject,
+          body: input.arguments.body,
+          cc: input.arguments[:cc],
+          bcc: input.arguments[:bcc]
+        }
+
+        case JumpstartAi.GmailService.send_email(user, email_params) do
+          {:ok, send_info} ->
+            {:ok, %{
+              "status" => "success",
+              "message" => "Email sent successfully",
+              "message_id" => send_info.message_id,
+              "thread_id" => send_info.thread_id,
+              "to" => input.arguments.to,
+              "subject" => input.arguments.subject
+            }}
+
+          {:error, reason} ->
+            {:error, "Failed to send email: #{reason}"}
+        end
+      end
+    end
+
+    action :list_drafts, {:array, :map} do
+      description """
+      Lists all draft emails from Gmail. Returns a list of drafts with their details.
+      """
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 20
+        description "Maximum number of drafts to return (default: 20)"
+      end
+
+      run fn input, context ->
+        user = context.actor
+        limit = input.arguments[:limit] || 20
+
+        opts = if limit, do: [maxResults: limit], else: []
+
+        case JumpstartAi.GmailService.list_drafts(user, opts) do
+          {:ok, drafts} ->
+            formatted_drafts =
+              Enum.map(drafts, fn draft ->
+                %{
+                  "draft_id" => draft.draft_id,
+                  "message_id" => draft.message_id,
+                  "subject" => draft.subject || "No Subject",
+                  "to" => draft.to,
+                  "cc" => draft.cc,
+                  "bcc" => draft.bcc,
+                  "snippet" => draft.snippet,
+                  "created_at" => draft.created_at
+                }
+              end)
+
+            {:ok, formatted_drafts}
+
+          {:error, reason} ->
+            {:error, "Failed to list drafts: #{reason}"}
+        end
+      end
+    end
+
+    action :send_email_with_draft, :map do
+      description """
+      Sends an email using the content from an existing draft. Validates draft exists first.
+      This is the SAFE way to send emails - requires a draft_id from a previously created draft.
+      """
+
+      argument :draft_id, :string do
+        allow_nil? false
+        description "The Gmail draft ID to extract content from and send"
+      end
+
+      run fn input, context ->
+        user = context.actor
+        draft_id = input.arguments.draft_id
+
+        # First, get the draft to extract its content
+        case JumpstartAi.GmailClient.get_draft(user, draft_id) do
+          {:ok, draft_data} ->
+            # Extract email details from the draft
+            message = draft_data["message"]
+            payload = message["payload"]
+            headers = payload["headers"] || []
+
+            # Get header values
+            to = get_header_value(headers, "To")
+            cc = get_header_value(headers, "Cc")
+            bcc = get_header_value(headers, "Bcc")
+            subject = get_header_value(headers, "Subject")
+
+            # Extract body content
+            body = extract_draft_body(payload)
+
+            # Validate required fields
+            if is_nil(to) or is_nil(subject) or is_nil(body) do
+              {:error, "Draft is missing required fields (to, subject, or body)"}
+            else
+              # Send email using the regular send endpoint with draft content
+              email_params = %{
+                to: to,
+                cc: cc,
+                bcc: bcc,
+                subject: subject,
+                body: body
+              }
+
+              case JumpstartAi.GmailService.send_email(user, email_params) do
+                {:ok, send_info} ->
+                  {:ok, %{
+                    "status" => "success",
+                    "message" => "Email sent successfully using draft content",
+                    "message_id" => send_info.message_id,
+                    "thread_id" => send_info.thread_id,
+                    "draft_id" => draft_id,
+                    "to" => to,
+                    "subject" => subject
+                  }}
+
+                {:error, reason} ->
+                  {:error, "Failed to send email: #{reason}"}
+              end
+            end
+
+          {:error, reason} ->
+            {:error, "Failed to get draft #{draft_id}: #{reason}"}
+        end
+      end
+    end
+
+    action :list_emails, {:array, :map} do
+      description """
+      Lists the latest emails for the user. Returns the 10 most recent emails with key details.
+      """
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of emails to return (default: 10)"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        limit = input.arguments[:limit] || 10
+
+        case JumpstartAi.Accounts.Email
+             |> Ash.Query.for_read(:read_user, %{user_id: user_id})
+             |> Ash.Query.select([:subject, :from_email, :from_name, :to_email, :date, :snippet])
+             |> Ash.Query.sort(date: :desc)
+             |> Ash.Query.limit(limit)
+             |> Ash.read(actor: context.actor, authorize?: false) do
+          {:ok, emails} ->
+            formatted_emails =
+              Enum.map(emails, fn email ->
+                %{
+                  "subject" => email.subject || "No Subject",
+                  "from_email" => email.from_email,
+                  "from_name" => email.from_name,
+                  "to_email" => email.to_email,
+                  "date" => email.date && DateTime.to_iso8601(email.date),
+                  "snippet" => email.snippet || "No preview available"
+                }
+              end)
+
+            {:ok, formatted_emails}
+
+          {:error, reason} ->
+            {:error, "Failed to list emails: #{inspect(reason)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -387,6 +655,26 @@ defmodule JumpstartAi.Accounts.Email do
     end
 
     bypass action(:semantic_search_emails) do
+      authorize_if actor_present()
+    end
+
+    policy action(:draft_email) do
+      authorize_if actor_present()
+    end
+
+    policy action(:send_email) do
+      authorize_if actor_present()
+    end
+
+    policy action(:list_drafts) do
+      authorize_if actor_present()
+    end
+
+    policy action(:send_email_with_draft) do
+      authorize_if actor_present()
+    end
+
+    policy action(:list_emails) do
       authorize_if actor_present()
     end
   end
@@ -532,4 +820,65 @@ defmodule JumpstartAi.Accounts.Email do
   end
 
   defp clean_text(nil), do: ""
+
+  # Helper function to get header value from Gmail API response
+  defp get_header_value(headers, name) do
+    case Enum.find(headers, fn header -> header["name"] == name end) do
+      %{"value" => value} -> value
+      _ -> nil
+    end
+  end
+
+  # Helper function to extract body content from draft payload
+  defp extract_draft_body(payload) do
+    cond do
+      payload["body"] && payload["body"]["data"] ->
+        # Single part message
+        decode_base64(payload["body"]["data"])
+
+      payload["parts"] ->
+        # Multi-part message - find text/plain part
+        find_text_body_in_parts(payload["parts"])
+
+      true ->
+        nil
+    end
+  end
+
+  defp find_text_body_in_parts(parts) do
+    parts
+    |> Enum.find(fn part -> part["mimeType"] == "text/plain" end)
+    |> case do
+      %{"body" => %{"data" => data}} -> decode_base64(data)
+      %{"parts" => nested_parts} -> find_text_body_in_parts(nested_parts)
+      _ -> nil
+    end
+  end
+
+  defp decode_base64(data) when is_binary(data) do
+    try do
+      # Gmail uses URL-safe base64 with padding removed
+      # Convert URL-safe characters back to standard base64
+      data
+      |> String.replace("-", "+")
+      |> String.replace("_", "/")
+      # Add padding if needed
+      |> pad_base64()
+      |> Base.decode64!()
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp decode_base64(_), do: nil
+
+  defp pad_base64(data) do
+    # Add padding to make the string length a multiple of 4
+    case rem(String.length(data), 4) do
+      0 -> data
+      1 -> data <> "==="
+      2 -> data <> "=="
+      3 -> data <> "="
+    end
+  end
 end

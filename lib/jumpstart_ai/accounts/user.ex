@@ -37,7 +37,7 @@ defmodule JumpstartAi.Accounts.User do
         authorization_params access_type: "offline",
                              prompt: "consent",
                              scope:
-                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar"
+                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.app.created https://www.googleapis.com/auth/calendar.events.owned"
       end
 
       oauth2 :hubspot do
@@ -528,7 +528,6 @@ defmodule JumpstartAi.Accounts.User do
           case JumpstartAi.GoogleContactsService.stream_user_contacts(user,
                  # Fetch 50 contacts at a time from Google API
                  batch_size: 5,
-                 # Total of 500 contacts
                  max_results: 50,
                  process_fn: process_batch_fn
                ) do
