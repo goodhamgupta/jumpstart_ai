@@ -8,7 +8,8 @@ config :jumpstart_ai, JumpstartAi.Repo,
   database: "jumpstart_ai_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 10,
+  types: JumpstartAi.PostgrexTypes
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

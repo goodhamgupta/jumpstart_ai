@@ -11,11 +11,54 @@ defmodule JumpstartAi.Accounts.Email do
     repo JumpstartAi.Repo
   end
 
+  vectorize do
+    # Combine metadata and content into a single vector for semantic search
+    full_text do
+      text fn email ->
+        # Clean and format metadata
+        metadata = """
+        From: #{clean_text(email.from_name || "Unknown")} <#{email.from_email || "unknown@example.com"}>
+        To: #{email.to_email || "unknown@example.com"}
+        Subject: #{clean_text(email.subject || "No Subject")}
+        Date: #{if email.date, do: Calendar.strftime(email.date, "%Y-%m-%d %H:%M"), else: "Unknown"}
+        Snippet: #{clean_text(email.snippet || "No snippet")}
+        """
+
+        content = email.markdown_content || email.body_text || ""
+        # Clean and truncate content
+        content =
+          content
+          |> clean_text()
+
+          # Leave room for metadata
+
+          |> truncate_for_embedding(6000)
+
+        metadata <> "\n\nContent:\n" <> content
+      end
+
+      used_attributes [
+        :from_name,
+        :from_email,
+        :to_email,
+        :subject,
+        :date,
+        :snippet,
+        :markdown_content,
+        :body_text
+      ]
+    end
+
+    strategy :after_action
+    embedding_model JumpstartAi.OpenAiEmbeddingModel
+  end
+
   actions do
     defaults [:read]
 
     update :update do
       accept [:markdown_content]
+      require_atomic? false
     end
 
     read :read_user do
@@ -209,6 +252,10 @@ defmodule JumpstartAi.Accounts.Email do
       authorize_if always()
     end
 
+    bypass action_type(:read) do
+      authorize_if AshAi.Checks.ActorIsAshAi
+    end
+
     policy action_type(:read) do
       authorize_if relates_to_actor_via(:user)
     end
@@ -325,6 +372,42 @@ defmodule JumpstartAi.Accounts.Email do
     has_body_html = email.body_html && String.trim(email.body_html) != ""
     has_snippet = email.snippet && String.trim(email.snippet) != ""
 
-    has_body_text or has_body_html or has_snippet
+    !!has_body_text or !!has_body_html or !!has_snippet
   end
+
+  # Helper function to truncate content for embeddings
+  defp truncate_for_embedding(content, max_tokens) when is_binary(content) do
+    # Rough estimate: 1 token ≈ 4 characters for English text
+    max_chars = max_tokens * 4
+
+    if String.length(content) > max_chars do
+      content
+      |> String.slice(0, max_chars)
+      |> String.reverse()
+      |> String.split(" ", parts: 2)
+      |> List.last()
+      |> String.reverse()
+      |> then(&(&1 <> "..."))
+    else
+      content
+    end
+  end
+
+  defp truncate_for_embedding(nil, _max_tokens), do: ""
+
+  # Helper function to clean text for embeddings
+  defp clean_text(text) when is_binary(text) do
+    text
+    # Remove HTML entities like &#39;
+    |> String.replace(~r/&#\d+;/, " ")
+    # Remove named HTML entities like &amp;
+    |> String.replace(~r/&[a-zA-Z]+;/, " ")
+    # Remove all non-ASCII characters
+    |> String.replace(~r/[^\x00-\x7F]/, " ")
+    # Normalize all whitespace to single spaces
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
+  defp clean_text(nil), do: ""
 end
