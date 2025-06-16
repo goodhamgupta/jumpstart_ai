@@ -3,11 +3,48 @@ defmodule JumpstartAi.Accounts.Contact do
     otp_app: :jumpstart_ai,
     domain: JumpstartAi.Accounts,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshAi]
+    
+  alias JumpstartAi.TextUtils
 
   postgres do
     table "contacts"
     repo JumpstartAi.Repo
+  end
+
+  vectorize do
+    # Combine contact metadata and summary into a single vector for semantic search
+    full_text do
+      text fn contact ->
+        metadata = """
+        Contact: #{TextUtils.clean_text(contact.firstname || "")} #{TextUtils.clean_text(contact.lastname || "")}
+        Email: #{contact.email || "No email"}
+        Company: #{TextUtils.clean_text(contact.company || "No company")}
+        Phone: #{contact.phone || "No phone"}
+        Lifecycle Stage: #{contact.lifecycle_stage || "Unknown"}
+        Source: #{contact.source || "Unknown"}
+        """
+        
+        notes_content = TextUtils.clean_and_truncate(contact.notes_summary || "", 4000)
+        
+        metadata <> "\n\nNotes Summary:\n" <> notes_content
+      end
+      
+      used_attributes [
+        :firstname,
+        :lastname,
+        :email,
+        :company,
+        :phone,
+        :lifecycle_stage,
+        :source,
+        :notes_summary
+      ]
+    end
+    
+    strategy :manual
+    embedding_model JumpstartAi.OpenAiEmbeddingModel
   end
 
   actions do
@@ -52,6 +89,25 @@ defmodule JumpstartAi.Accounts.Contact do
         |> Ash.Changeset.change_attribute(:external_updated_at, hubspot_data.updated_at)
         |> Ash.Changeset.change_attribute(:notes_summary, generate_notes_summary(hubspot_data))
       end
+      
+      # Automatic vectorization after contact creation/update
+      change after_action(fn _changeset, contact, _context ->
+               case contact
+                    |> Ash.Changeset.for_update(:vectorize, %{})
+                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                 {:ok, updated_contact} ->
+                   {:ok, updated_contact}
+                 
+                 {:error, error} ->
+                   require Logger
+                   
+                   Logger.warning(
+                     "Failed to update embeddings for contact #{contact.id} from HubSpot: #{inspect(error)}"
+                   )
+                   
+                   {:ok, contact}
+               end
+             end)
 
       upsert_fields [
         :email,
@@ -91,6 +147,25 @@ defmodule JumpstartAi.Accounts.Contact do
           generate_google_notes_summary(google_data)
         )
       end
+      
+      # Automatic vectorization after contact creation/update
+      change after_action(fn _changeset, contact, _context ->
+               case contact
+                    |> Ash.Changeset.for_update(:vectorize, %{})
+                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                 {:ok, updated_contact} ->
+                   {:ok, updated_contact}
+                 
+                 {:error, error} ->
+                   require Logger
+                   
+                   Logger.warning(
+                     "Failed to update embeddings for contact #{contact.id} from Google: #{inspect(error)}"
+                   )
+                   
+                   {:ok, contact}
+               end
+             end)
 
       upsert_fields [
         :email,
@@ -114,6 +189,32 @@ defmodule JumpstartAi.Accounts.Contact do
         :notes_summary,
         :external_updated_at
       ]
+      require_atomic? false
+      
+      # Trigger manual vectorization after update
+      change after_action(fn _changeset, contact, _context ->
+               case contact
+                    |> Ash.Changeset.for_update(:vectorize, %{})
+                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                 {:ok, updated_contact} ->
+                   {:ok, updated_contact}
+                 
+                 {:error, error} ->
+                   require Logger
+                   
+                   Logger.warning(
+                     "Failed to update embeddings for contact #{contact.id}: #{inspect(error)}"
+                   )
+                   
+                   {:ok, contact}
+               end
+             end)
+    end
+    
+    update :vectorize do
+      accept []
+      change AshAi.Changes.Vectorize
+      require_atomic? false
     end
 
     read :search_by_name do
@@ -154,6 +255,18 @@ defmodule JumpstartAi.Accounts.Contact do
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
       authorize_if always()
+    end
+    
+    bypass action_type(:read) do
+      authorize_if AshAi.Checks.ActorIsAshAi
+    end
+    
+    bypass action(:ash_ai_update_embeddings) do
+      authorize_if AshAi.Checks.ActorIsAshAi
+    end
+    
+    policy action(:vectorize) do
+      authorize_if AshAi.Checks.ActorIsAshAi
     end
 
     policy always() do
@@ -283,4 +396,5 @@ defmodule JumpstartAi.Accounts.Contact do
 
     Enum.join(parts, ". ")
   end
+  
 end

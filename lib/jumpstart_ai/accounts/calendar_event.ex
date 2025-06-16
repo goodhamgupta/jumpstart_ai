@@ -3,11 +3,64 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
     otp_app: :jumpstart_ai,
     domain: JumpstartAi.Accounts,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshAi]
+    
+  alias JumpstartAi.TextUtils
 
   postgres do
     table "calendar_events"
     repo JumpstartAi.Repo
+  end
+
+  vectorize do
+    # Combine event metadata and description for semantic search
+    full_text do
+      text fn event ->
+        # Format attendees from JSON string
+        attendees_text = case Jason.decode(event.attendees || "[]") do
+          {:ok, attendees} when is_list(attendees) ->
+            attendees
+            |> Enum.map(fn attendee -> 
+              case attendee do
+                %{"email" => email} -> email
+                email when is_binary(email) -> email
+                _ -> "Unknown"
+              end
+            end)
+            |> Enum.join(", ")
+          _ -> "No attendees"
+        end
+        
+        metadata = """
+        Event: #{TextUtils.clean_text(event.summary || "No title")}
+        Location: #{TextUtils.clean_text(event.location || "No location")}
+        Start: #{if event.start_time, do: Calendar.strftime(event.start_time, "%Y-%m-%d %H:%M"), else: "Unknown"}
+        End: #{if event.end_time, do: Calendar.strftime(event.end_time, "%Y-%m-%d %H:%M"), else: "Unknown"}
+        Status: #{event.status || "Unknown"}
+        Attendees: #{attendees_text}
+        Organizer: #{event.organizer || "Unknown"}
+        """
+        
+        description = TextUtils.clean_and_truncate(event.description || "", 4000)
+        
+        metadata <> "\n\nDescription:\n" <> description
+      end
+      
+      used_attributes [
+        :summary,
+        :description,
+        :location,
+        :start_time,
+        :end_time,
+        :attendees,
+        :organizer,
+        :status
+      ]
+    end
+    
+    strategy :manual
+    embedding_model JumpstartAi.OpenAiEmbeddingModel
   end
 
   actions do
@@ -83,6 +136,25 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
         |> Ash.Changeset.change_attribute(:google_created_at, google_data[:created])
         |> Ash.Changeset.change_attribute(:google_updated_at, google_data[:updated])
       end
+      
+      # Automatic vectorization after calendar event creation/update
+      change after_action(fn _changeset, event, _context ->
+               case event
+                    |> Ash.Changeset.for_update(:vectorize, %{})
+                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                 {:ok, updated_event} ->
+                   {:ok, updated_event}
+                 
+                 {:error, error} ->
+                   require Logger
+                   
+                   Logger.warning(
+                     "Failed to update embeddings for calendar event #{event.id} from Google: #{inspect(error)}"
+                   )
+                   
+                   {:ok, event}
+               end
+             end)
     end
 
     create :schedule_meeting do
@@ -152,9 +224,97 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
       # Return empty result set since this is handled by the AI agent directly
       filter expr(false)
     end
+    
+    action :generate_meeting_summary, :string do
+      description """
+      Generates a summary of the calendar event including key details and outcomes.
+      """
+      
+      argument :summary, :string do
+        allow_nil? true
+        description "Event title/summary"
+      end
+      
+      argument :description, :string do
+        allow_nil? true
+        description "Event description"
+      end
+      
+      argument :location, :string do
+        allow_nil? true
+        description "Event location"
+      end
+      
+      argument :start_time, :utc_datetime do
+        allow_nil? true
+        description "Event start time"
+      end
+      
+      argument :end_time, :utc_datetime do
+        allow_nil? true
+        description "Event end time"
+      end
+      
+      run prompt(
+            fn _input, _context ->
+              LangChain.ChatModels.ChatOpenAI.new!(%{
+                model: "gpt-4.1-mini-2025-04-14",
+                api_key: System.get_env("OPENAI_API_KEY"),
+                timeout: 30_000,
+                temperature: 0,
+                max_tokens: 1000
+              })
+            end,
+            tools: false,
+            prompt: """
+            Create a concise summary of this calendar event. Include the purpose, key participants, and any outcomes or next steps if mentioned.
+            
+            Event: <%= @input.arguments.summary || "Untitled Event" %>
+            Location: <%= @input.arguments.location || "No location specified" %>
+            Duration: <%= if @input.arguments.start_time && @input.arguments.end_time do %>
+              <%= Calendar.strftime(@input.arguments.start_time, "%Y-%m-%d %H:%M") %> to <%= Calendar.strftime(@input.arguments.end_time, "%H:%M") %>
+            <% else %>
+              Time not specified
+            <% end %>
+            
+            <%= if @input.arguments.description && String.trim(@input.arguments.description) != "" do %>
+              Description:
+              <%= @input.arguments.description %>
+            <% else %>
+              No description provided.
+            <% end %>
+            """
+          )
+    end
 
     update :update do
       accept [:summary, :description, :location, :start_time, :end_time, :attendees, :status]
+      require_atomic? false
+      
+      # Trigger manual vectorization after update
+      change after_action(fn _changeset, event, _context ->
+               case event
+                    |> Ash.Changeset.for_update(:vectorize, %{})
+                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                 {:ok, updated_event} ->
+                   {:ok, updated_event}
+                 
+                 {:error, error} ->
+                   require Logger
+                   
+                   Logger.warning(
+                     "Failed to update embeddings for calendar event #{event.id}: #{inspect(error)}"
+                   )
+                   
+                   {:ok, event}
+               end
+             end)
+    end
+    
+    update :vectorize do
+      accept []
+      change AshAi.Changes.Vectorize
+      require_atomic? false
     end
   end
 
@@ -172,6 +332,18 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
     # Special handling for action-based reads
     policy action(:find_availability) do
       authorize_if always()
+    end
+    
+    bypass action_type(:read) do
+      authorize_if AshAi.Checks.ActorIsAshAi
+    end
+    
+    bypass action(:ash_ai_update_embeddings) do
+      authorize_if AshAi.Checks.ActorIsAshAi
+    end
+    
+    policy action(:vectorize) do
+      authorize_if AshAi.Checks.ActorIsAshAi
     end
   end
 
@@ -283,4 +455,5 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
   identities do
     identity :unique_google_event_per_user, [:user_id, :google_event_id]
   end
+  
 end
