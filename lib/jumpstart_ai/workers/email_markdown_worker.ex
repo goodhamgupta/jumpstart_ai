@@ -281,6 +281,8 @@ defmodule JumpstartAi.Workers.EmailMarkdownWorker do
   end
 
   defp update_email_with_markdown(email, markdown_content) do
+    # Update email with markdown content - this will automatically trigger vectorization
+    # via the after_action change in the :update action
     email
     |> Ash.Changeset.for_update(:update, %{markdown_content: markdown_content})
     |> Ash.update(authorize?: false)

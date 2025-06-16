@@ -49,7 +49,7 @@ defmodule JumpstartAi.Accounts.Email do
       ]
     end
 
-    strategy :after_action
+    strategy :manual
     embedding_model JumpstartAi.OpenAiEmbeddingModel
   end
 
@@ -58,6 +58,31 @@ defmodule JumpstartAi.Accounts.Email do
 
     update :update do
       accept [:markdown_content]
+      require_atomic? false
+
+      # Trigger manual vectorization after update
+      change after_action(fn _changeset, email, _context ->
+               case email
+                    |> Ash.Changeset.for_update(:vectorize, %{})
+                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                 {:ok, updated_email} ->
+                   {:ok, updated_email}
+
+                 {:error, error} ->
+                   require Logger
+
+                   Logger.warning(
+                     "Failed to update embeddings for email #{email.id}: #{inspect(error)}"
+                   )
+
+                   {:ok, email}
+               end
+             end)
+    end
+
+    update :vectorize do
+      accept []
+      change AshAi.Changes.Vectorize
       require_atomic? false
     end
 
@@ -256,6 +281,10 @@ defmodule JumpstartAi.Accounts.Email do
       authorize_if AshAi.Checks.ActorIsAshAi
     end
 
+    bypass action(:ash_ai_update_embeddings) do
+      authorize_if AshAi.Checks.ActorIsAshAi
+    end
+
     policy action_type(:read) do
       authorize_if relates_to_actor_via(:user)
     end
@@ -266,6 +295,10 @@ defmodule JumpstartAi.Accounts.Email do
 
     policy action(:search_emails_by_from) do
       authorize_if actor_present()
+    end
+
+    policy action(:vectorize) do
+      authorize_if AshAi.Checks.ActorIsAshAi
     end
   end
 
