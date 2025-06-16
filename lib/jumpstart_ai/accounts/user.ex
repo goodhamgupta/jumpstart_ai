@@ -386,7 +386,6 @@ defmodule JumpstartAi.Accounts.User do
             message: "No Google access token available"
           )
         else
-
           # Define the process function that will be called for each batch of emails
           process_batch_fn = fn emails ->
             # Convert email data to the format expected by the Email resource
@@ -479,10 +478,9 @@ defmodule JumpstartAi.Accounts.User do
             message: "No Google access token available"
           )
         else
-
           # Define the process function that will be called for each batch of contacts
           process_batch_fn = fn contacts ->
-            # Convert contact data to the format expected by the Contact resource  
+            # Convert contact data to the format expected by the Contact resource
             contact_inputs =
               Enum.map(contacts, fn contact_data ->
                 %{
@@ -573,7 +571,6 @@ defmodule JumpstartAi.Accounts.User do
             message: "No Google access token available"
           )
         else
-
           # Define the process function that will be called for each batch of events
           process_batch_fn = fn events ->
             # Convert event data to the format expected by the CalendarEvent resource

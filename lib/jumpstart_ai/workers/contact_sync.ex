@@ -38,7 +38,9 @@ defmodule JumpstartAi.Workers.ContactSync do
 
                 # If sync failed and we don't have a refresh token, log the issue
                 if is_nil(user.google_refresh_token) do
-                  IO.puts("ContactSync – user #{user_id} has no refresh token for re-authentication")
+                  IO.puts(
+                    "ContactSync – user #{user_id} has no refresh token for re-authentication"
+                  )
                 end
 
                 {:error, error}

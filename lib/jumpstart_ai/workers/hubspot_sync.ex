@@ -54,8 +54,10 @@ defmodule JumpstartAi.Workers.HubSpotSync do
 
       # Only sync notes for HubSpot contacts - Google contacts won't have notes in HubSpot
       hubspot_contacts = Enum.filter(contacts, fn contact -> contact.source == "hubspot" end)
-      
-      Logger.info("HubSpot Sync - Found #{length(hubspot_contacts)} HubSpot contacts out of #{length(contacts)} total contacts")
+
+      Logger.info(
+        "HubSpot Sync - Found #{length(hubspot_contacts)} HubSpot contacts out of #{length(contacts)} total contacts"
+      )
 
       notes_synced =
         hubspot_contacts
@@ -145,32 +147,43 @@ defmodule JumpstartAi.Workers.HubSpotSync do
 
   defp sync_contact_notes(user, contact) do
     Logger.debug("HubSpot Sync - Fetching notes for contact #{contact.external_id}")
-    
+
     case HubSpotService.fetch_contact_notes(user, contact.external_id) do
       {:ok, notes} ->
-        Logger.debug("HubSpot Sync - Found #{length(notes)} notes for contact #{contact.external_id}")
-        
+        Logger.debug(
+          "HubSpot Sync - Found #{length(notes)} notes for contact #{contact.external_id}"
+        )
+
         # Process each note and create ContactNote records
         notes
         |> Enum.map(fn note ->
           note_data = Map.put(note, :contact_id, contact.id)
-          
+
           ContactNote
           |> Ash.Changeset.for_create(:create_from_hubspot, %{hubspot_note_data: note_data})
           |> Ash.create(authorize?: false)
           |> case do
             {:ok, contact_note} ->
-              Logger.debug("HubSpot Sync - Created note #{note.hubspot_note_id} for contact #{contact.external_id}")
+              Logger.debug(
+                "HubSpot Sync - Created note #{note.hubspot_note_id} for contact #{contact.external_id}"
+              )
+
               {:ok, contact_note}
-              
+
             {:error, error} ->
-              Logger.error("HubSpot Sync - Failed to create note #{note.hubspot_note_id} for contact #{contact.external_id}: #{inspect(error)}")
+              Logger.error(
+                "HubSpot Sync - Failed to create note #{note.hubspot_note_id} for contact #{contact.external_id}: #{inspect(error)}"
+              )
+
               {:error, error}
           end
         end)
-        
+
       {:error, reason} ->
-        Logger.error("HubSpot Sync - Failed to fetch notes for contact #{contact.external_id}: #{inspect(reason)}")
+        Logger.error(
+          "HubSpot Sync - Failed to fetch notes for contact #{contact.external_id}: #{inspect(reason)}"
+        )
+
         []
     end
   end

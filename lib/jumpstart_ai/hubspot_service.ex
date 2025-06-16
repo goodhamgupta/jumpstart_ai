@@ -174,11 +174,17 @@ defmodule JumpstartAi.HubSpotService do
       # HubSpot's associations API requires the contact to be associated with notes
       case fetch_all_notes(access_token, contact_external_id) do
         {:ok, notes} ->
-          Logger.debug("HubSpot - Found #{length(notes)} notes for contact #{contact_external_id}")
+          Logger.debug(
+            "HubSpot - Found #{length(notes)} notes for contact #{contact_external_id}"
+          )
+
           {:ok, notes}
 
         {:error, reason} ->
-          Logger.error("HubSpot - Failed to fetch notes for contact #{contact_external_id}: #{inspect(reason)}")
+          Logger.error(
+            "HubSpot - Failed to fetch notes for contact #{contact_external_id}: #{inspect(reason)}"
+          )
+
           {:error, reason}
       end
     end
@@ -263,7 +269,10 @@ defmodule JumpstartAi.HubSpotService do
         {:ok, []}
 
       {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
-        Logger.error("HubSpot - Note associations fetch failed with status #{status_code}: #{body}")
+        Logger.error(
+          "HubSpot - Note associations fetch failed with status #{status_code}: #{body}"
+        )
+
         {:error, {:api_error, status_code}}
 
       {:error, error} ->
@@ -285,10 +294,16 @@ defmodule JumpstartAi.HubSpotService do
 
     inputs = Enum.map(note_ids, fn id -> %{"id" => id} end)
 
-    body = Jason.encode!(%{
-      "inputs" => inputs,
-      "properties" => ["hs_note_body", "hs_created_at", "hs_lastmodifieddate", "hubspot_owner_id"]
-    })
+    body =
+      Jason.encode!(%{
+        "inputs" => inputs,
+        "properties" => [
+          "hs_note_body",
+          "hs_created_at",
+          "hs_lastmodifieddate",
+          "hubspot_owner_id"
+        ]
+      })
 
     case HTTPoison.post(url, body, headers) do
       {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
@@ -303,7 +318,10 @@ defmodule JumpstartAi.HubSpotService do
         end
 
       {:ok, %HTTPoison.Response{status_code: status_code, body: response_body}} ->
-        Logger.error("HubSpot - Batch notes fetch failed with status #{status_code}: #{response_body}")
+        Logger.error(
+          "HubSpot - Batch notes fetch failed with status #{status_code}: #{response_body}"
+        )
+
         {:error, {:api_error, status_code}}
 
       {:error, error} ->

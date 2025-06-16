@@ -16,16 +16,19 @@ defmodule JumpstartAiWeb.SettingsLive do
   @impl true
   def handle_params(_params, _url, socket) do
     # Refresh user data in case they just completed OAuth
-    require Ash.Query
     current_user = socket.assigns.current_user
     user_id = current_user.id
 
     refreshed_user =
-      case JumpstartAi.Accounts.User
-           |> Ash.Query.filter(id == ^user_id)
-           |> Ash.read_one() do
-        {:ok, user} -> user
-        {:error, _} -> current_user
+      try do
+        case Ash.read_one!(JumpstartAi.Accounts, JumpstartAi.Accounts.User, :get_by_id, %{
+               id: user_id
+             }) do
+          user when not is_nil(user) -> user
+          _ -> current_user
+        end
+      rescue
+        _ -> current_user
       end
 
     {:noreply,
@@ -186,9 +189,20 @@ defmodule JumpstartAiWeb.SettingsLive do
     """
   end
 
-  defp is_hubspot_connected?(nil), do: false
+  require Logger
 
-  defp is_hubspot_connected?(user) do
-    not is_nil(user.hubspot_access_token)
+  defp is_hubspot_connected?(nil) do
+    Logger.debug("HubSpot connection check – user is nil -> false")
+    false
+  end
+
+  defp is_hubspot_connected?(%{id: id, hubspot_access_token: token}) do
+    connected? = not is_nil(token)
+
+    Logger.debug(
+      "HubSpot connection check – user_id=#{id} token_present=#{!is_nil(token)} -> #{connected?}"
+    )
+
+    connected?
   end
 end
