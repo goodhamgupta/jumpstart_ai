@@ -12,6 +12,23 @@ config :jumpstart_ai,
   hubspot_redirect_uri:
     System.get_env("HUBSPOT_REDIRECT_URI") || "http://localhost:4000/auth/user/hubspot/callback"
 
+
+config :jumpstart_ai, JumpstartAi.Repo,
+  username: System.get_env("DB_USERNAME", "postgres"),
+  password: System.get_env("DB_PASSWORD", "postgres"),
+  hostname: System.get_env("DB_HOSTNAME", "localhost"),
+  database: System.get_env("DB_NAME", "jumpstart_ai_dev"),
+  stacktrace: true,
+  show_sensitive_data_on_connection_error: true,
+  pool_size: 10,
+  types: JumpstartAi.PostgrexTypes
+
+# HubSpot OAuth configuration for development
+config :jumpstart_ai,
+  hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID", "d64b76f0-8dd0-49de-a813-91b0a5a60070"),
+  hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET", ""),
+  hubspot_redirect_uri: System.get_env("HUBSPOT_REDIRECT_URI", "http://localhost:4000/auth/user/hubspot/callback")
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
