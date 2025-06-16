@@ -78,7 +78,8 @@ config :jumpstart_ai,
 
 # Configures the endpoint
 config :jumpstart_ai, JumpstartAiWeb.Endpoint,
-  url: [host: "localhost"],
+  url: [host: "0.0.0.0"],
+  http: [ip: {0, 0, 0, 0}, port: 4000],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
     formats: [html: JumpstartAiWeb.ErrorHTML, json: JumpstartAiWeb.ErrorJSON],

@@ -1,15 +1,49 @@
+version: "3.9"
+
 services:
   db:
-    # Postgres image with pgvector extension pre-installed
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: jumpstart_ai_dev
     ports:
       - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  app:
+    image: elixir:1.18.4-otp-26
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      MIX_ENV: dev
+      DATABASE_URL: ecto://postgres:postgres@db/jumpstart_ai_dev
+      PHX_HOST: 0.0.0.0
+      PHX_PORT: 4000
+      DB_HOSTNAME: db
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+    command: >
+      bash -c "
+        mix deps.get &&
+        mix ash.setup &&
+        mix phx.server
+      "
+    ports:
+      - "4000:4000"
+
+volumes:
+  db_data:
