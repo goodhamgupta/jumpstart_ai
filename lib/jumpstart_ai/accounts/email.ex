@@ -19,6 +19,20 @@ defmodule JumpstartAi.Accounts.Email do
       filter expr(user_id == ^arg(:user_id))
     end
 
+    read :search_emails do
+      description "Search emails by subject, from, to, or body content"
+      argument :query, :string, allow_nil?: false
+
+      filter expr(
+               ilike(subject, ^arg(:query)) or
+                 ilike(from_email, ^arg(:query)) or
+                 ilike(from_name, ^arg(:query)) or
+                 ilike(to_email, ^arg(:query)) or
+                 ilike(body_text, ^arg(:query)) or
+                 ilike(snippet, ^arg(:query))
+             )
+    end
+
     create :create_from_gmail do
       accept [
         :gmail_id,

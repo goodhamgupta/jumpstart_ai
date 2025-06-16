@@ -37,7 +37,7 @@ defmodule JumpstartAi.Accounts.User do
         authorization_params access_type: "offline",
                              prompt: "consent",
                              scope:
-                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/contacts.readonly"
+                               "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar"
       end
 
       oauth2 :hubspot do
@@ -127,6 +127,7 @@ defmodule JumpstartAi.Accounts.User do
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
       change set_attribute(:email_sync_status, "pending")
       change set_attribute(:contact_sync_status, "pending")
+      change set_attribute(:calendar_sync_status, "pending")
 
       change after_action(fn _changeset, user, _context ->
                case user.confirmed_at do
@@ -149,6 +150,14 @@ defmodule JumpstartAi.Accounts.User do
                      # Schedule contact sync job
                      JumpstartAi.Workers.ContactSync.new(%{user_id: user.id})
                      |> Oban.insert(schedule_in: 15)
+                   end
+
+                   # Trigger calendar sync for Google OAuth users
+                   if not is_nil(user.google_access_token) and
+                        (is_nil(user.calendar_synced_at) or user.calendar_sync_status == "pending") do
+                     # Schedule calendar sync job
+                     JumpstartAi.Workers.CalendarSync.new(%{user_id: user.id})
+                     |> Oban.insert(schedule_in: 20)
                    end
 
                    {:ok, user}
@@ -324,6 +333,7 @@ defmodule JumpstartAi.Accounts.User do
         :google_token_expires_at,
         :email_sync_status,
         :contact_sync_status,
+        :calendar_sync_status,
         :hubspot_access_token,
         :hubspot_refresh_token,
         :hubspot_token_expires_at,
@@ -567,6 +577,100 @@ defmodule JumpstartAi.Accounts.User do
                {:ok, user}
              end)
     end
+
+    update :sync_calendar_events do
+      require_atomic? false
+      accept []
+
+      change fn changeset, _context ->
+        user = changeset.data
+
+        # Check if user has Google access token
+        if is_nil(user.google_access_token) do
+          changeset
+          |> Ash.Changeset.change_attribute(:calendar_sync_status, "failed")
+          |> Ash.Changeset.add_error(
+            field: :calendar_sync_status,
+            message: "No Google access token available"
+          )
+        else
+          # Set to processing to indicate work is starting
+          changeset =
+            Ash.Changeset.change_attribute(changeset, :calendar_sync_status, "processing")
+
+          # Define the process function that will be called for each batch of events
+          process_batch_fn = fn events ->
+            # Convert event data to the format expected by the CalendarEvent resource
+            event_inputs =
+              Enum.map(events, fn event_data ->
+                %{
+                  google_data: event_data,
+                  user_id: user.id
+                }
+              end)
+
+            # Process events in smaller chunks of 10 for database insertion
+            event_inputs
+            |> Enum.chunk_every(10)
+            |> Enum.each(fn chunk ->
+              Ash.bulk_create(
+                chunk,
+                JumpstartAi.Accounts.CalendarEvent,
+                :create_from_google,
+                upsert?: true,
+                upsert_identity: :unique_google_event_per_user,
+                upsert_fields: [
+                  :summary,
+                  :description,
+                  :location,
+                  :start_time,
+                  :end_time,
+                  :attendees,
+                  :creator,
+                  :organizer,
+                  :status,
+                  :html_link,
+                  :google_created_at,
+                  :google_updated_at
+                ],
+                actor: user,
+                authorize?: false,
+                return_records?: false,
+                stop_on_error?: false
+              )
+            end)
+
+            {:ok, length(event_inputs)}
+          end
+
+          # Get events from last 30 days and next 90 days
+          time_min = DateTime.utc_now() |> DateTime.add(-30, :day) |> DateTime.to_iso8601()
+          time_max = DateTime.utc_now() |> DateTime.add(90, :day) |> DateTime.to_iso8601()
+
+          # Use streaming approach to process events in batches
+          case JumpstartAi.CalendarService.stream_user_events(user,
+                 batch_size: 50,
+                 max_results: 250,
+                 time_min: time_min,
+                 time_max: time_max,
+                 process_fn: process_batch_fn
+               ) do
+            {:ok, total_processed} ->
+              changeset
+              |> Ash.Changeset.change_attribute(:calendar_sync_status, "completed")
+              |> Ash.Changeset.change_attribute(:calendar_synced_at, DateTime.utc_now())
+
+            {:error, reason} ->
+              changeset
+              |> Ash.Changeset.change_attribute(:calendar_sync_status, "failed")
+              |> Ash.Changeset.add_error(
+                field: :calendar_sync_status,
+                message: "Failed to sync calendar events: #{inspect(reason)}"
+              )
+          end
+        end
+      end
+    end
   end
 
   policies do
@@ -619,6 +723,14 @@ defmodule JumpstartAi.Accounts.User do
       allow_nil? true
     end
 
+    attribute :calendar_sync_status, :string do
+      allow_nil? true
+    end
+
+    attribute :calendar_synced_at, :utc_datetime_usec do
+      allow_nil? true
+    end
+
     attribute :hubspot_access_token, :string do
       allow_nil? true
       sensitive? true
@@ -644,6 +756,10 @@ defmodule JumpstartAi.Accounts.User do
     end
 
     has_many :contacts, JumpstartAi.Accounts.Contact do
+      public? true
+    end
+
+    has_many :calendar_events, JumpstartAi.Accounts.CalendarEvent do
       public? true
     end
   end
@@ -679,25 +795,6 @@ defmodule JumpstartAi.Accounts.User do
   defp parse_email_date(nil), do: nil
 
   defp parse_email_date(date_string) when is_binary(date_string) do
-    case DateTime.from_iso8601(date_string) do
-      {:ok, datetime, _} ->
-        datetime
-
-      _ ->
-        try do
-          case Timex.parse(date_string, "{RFC1123}") do
-            {:ok, datetime} -> datetime
-            _ -> nil
-          end
-        rescue
-          _ -> nil
-        end
-    end
-  end
-
-  defp parse_contact_date(nil), do: nil
-
-  defp parse_contact_date(date_string) when is_binary(date_string) do
     case DateTime.from_iso8601(date_string) do
       {:ok, datetime, _} ->
         datetime

@@ -137,6 +137,18 @@ defmodule JumpstartAi.Accounts.Contact do
       get? true
       filter expr(email == ^arg(:email))
     end
+
+    read :find_contact do
+      description "Find contacts by name, email, or company"
+      argument :query, :string, allow_nil?: false
+
+      filter expr(
+               ilike(firstname, ^arg(:query)) or
+                 ilike(lastname, ^arg(:query)) or
+                 ilike(email, ^arg(:query)) or
+                 ilike(company, ^arg(:query))
+             )
+    end
   end
 
   policies do

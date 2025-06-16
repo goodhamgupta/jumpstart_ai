@@ -8,5 +8,6 @@ defmodule JumpstartAi.Accounts do
     resource JumpstartAi.Accounts.Email
     resource JumpstartAi.Accounts.Contact
     resource JumpstartAi.Accounts.ContactNote
+    resource JumpstartAi.Accounts.CalendarEvent
   end
 end
