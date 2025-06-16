@@ -4,7 +4,7 @@ defmodule JumpstartAi.Accounts.Email do
     domain: JumpstartAi.Accounts,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshOban]
+    extensions: [AshOban, AshAi]
 
   postgres do
     table "emails"
@@ -13,6 +13,10 @@ defmodule JumpstartAi.Accounts.Email do
 
   actions do
     defaults [:read]
+
+    update :update do
+      accept [:markdown_content]
+    end
 
     read :read_user do
       argument :user_id, :uuid, allow_nil?: false
@@ -108,14 +112,95 @@ defmodule JumpstartAi.Accounts.Email do
         :label_ids,
         :attachments,
         :mime_type,
-        :user_id
+        :user_id,
+        :markdown_content
       ]
 
       argument :user_id, :uuid, allow_nil?: false
       change set_attribute(:user_id, arg(:user_id))
 
+      # Queue markdown generation after email creation/update
+      change after_action(fn _changeset, email, _context ->
+               # Only queue markdown generation if email doesn't already have markdown content
+               # and has content to process
+               if should_generate_markdown?(email) do
+                 case JumpstartAi.Workers.EmailMarkdownWorker.enqueue_single_email(email.id) do
+                   {:ok, _job} ->
+                     {:ok, email}
+
+                   {:error, error} ->
+                     # Don't fail email creation if markdown job fails to enqueue
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to enqueue markdown generation for email #{email.id}: #{inspect(error)}"
+                     )
+
+                     {:ok, email}
+                 end
+               else
+                 {:ok, email}
+               end
+             end)
+
       upsert? true
       upsert_identity :unique_gmail_id_per_user
+    end
+
+    action :generate_markdown_content, :string do
+      description """
+      Converts email content to clean, readable markdown format using LLM.
+      Prioritizes body_text, then body_html, then snippet for content source.
+      """
+
+      argument :body_text, :string do
+        allow_nil? true
+        description "Plain text body content"
+      end
+
+      argument :body_html, :string do
+        allow_nil? true
+        description "HTML body content"
+      end
+
+      argument :snippet, :string do
+        allow_nil? true
+        description "Email snippet/preview"
+      end
+
+      argument :subject, :string do
+        allow_nil? true
+        description "Email subject for context"
+      end
+
+      run prompt(
+            fn _input, _context ->
+              LangChain.ChatModels.ChatOpenAI.new!(%{
+                model: "gpt-4.1-mini-2025-04-14",
+                api_key: System.get_env("OPENAI_API_KEY"),
+                timeout: 30_000,
+                temperature: 0,
+                max_tokens: 4000
+              })
+            end,
+            tools: false,
+            prompt: """
+            Convert to clean markdown. Remove HTML tags, signatures, footers. Keep core message only.
+
+            Subject: <%= @input.arguments.subject || "No subject" %>
+
+            <%= cond do %>
+              <% @input.arguments.body_text && String.trim(@input.arguments.body_text) != "" -> %>
+                <%= @input.arguments.body_text %>
+              <% @input.arguments.body_html && String.trim(@input.arguments.body_html) != "" -> %>
+                <%= @input.arguments.body_html %>
+              <% @input.arguments.snippet && String.trim(@input.arguments.snippet) != "" -> %>
+                <%= @input.arguments.snippet %>
+              <% true -> %>
+                [No content available]
+            <% end %>
+            """
+          )
     end
   end
 
@@ -207,6 +292,12 @@ defmodule JumpstartAi.Accounts.Email do
       public? true
     end
 
+    attribute :markdown_content, :string do
+      allow_nil? true
+      public? true
+      description "LLM-generated markdown content from email body"
+    end
+
     timestamps()
   end
 
@@ -219,5 +310,21 @@ defmodule JumpstartAi.Accounts.Email do
 
   identities do
     identity :unique_gmail_id_per_user, [:gmail_id, :user_id]
+  end
+
+  # Helper function to determine if markdown generation is needed
+  defp should_generate_markdown?(email) do
+    # Generate markdown if:
+    # 1. Email doesn't already have markdown content
+    # 2. Email has at least one content source (body_text, body_html, or snippet)
+    is_nil(email.markdown_content) and has_content?(email)
+  end
+
+  defp has_content?(email) do
+    has_body_text = email.body_text && String.trim(email.body_text) != ""
+    has_body_html = email.body_html && String.trim(email.body_html) != ""
+    has_snippet = email.snippet && String.trim(email.snippet) != ""
+
+    has_body_text or has_body_html or has_snippet
   end
 end

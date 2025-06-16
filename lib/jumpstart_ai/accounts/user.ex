@@ -452,8 +452,11 @@ defmodule JumpstartAi.Accounts.User do
                  process_fn: process_batch_fn
                ) do
             {:ok, total_processed} ->
-              changeset
-              |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
+              updated_changeset =
+                changeset
+                |> Ash.Changeset.change_attribute(:emails_synced_at, DateTime.utc_now())
+
+              updated_changeset
 
             {:error, reason} ->
               changeset

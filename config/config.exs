@@ -21,7 +21,8 @@ config :jumpstart_ai, Oban,
     conversations: [limit: 10],
     email_sync: [limit: 10],
     contact_sync: [limit: 10],
-    calendar_sync: [limit: 10]
+    calendar_sync: [limit: 10],
+    email_to_markdown: [limit: 10]
   ],
   repo: JumpstartAi.Repo,
   plugins: [

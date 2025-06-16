@@ -37,7 +37,7 @@ defmodule JumpstartAi.Chat.Conversation.Changes.GenerateName do
       %{
         llm:
           ChatOpenAI.new!(%{
-            model: "gpt-4o",
+            model: "gpt-4.1-mini-2025-04-14",
             custom_context: Map.new(Ash.Context.to_opts(context))
           }),
         verbose?: true
