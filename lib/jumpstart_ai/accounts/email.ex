@@ -33,6 +33,17 @@ defmodule JumpstartAi.Accounts.Email do
              )
     end
 
+    read :search_by_from_email do
+      description "Search emails by from_email field"
+      argument :from_email, :string, allow_nil?: false
+      argument :user_id, :uuid, allow_nil?: false
+
+      filter expr(
+               user_id == ^arg(:user_id) and
+                 ilike(from_email, ^arg(:from_email))
+             )
+    end
+
     create :create_from_gmail do
       accept [
         :gmail_id,

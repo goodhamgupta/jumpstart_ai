@@ -21,10 +21,10 @@ defmodule JumpstartAiWeb.SettingsLive do
 
     refreshed_user =
       try do
-        case Ash.read_one!(JumpstartAi.Accounts, JumpstartAi.Accounts.User, :get_by_id, %{
-               id: user_id
-             }) do
-          user when not is_nil(user) -> user
+        case JumpstartAi.Accounts.User
+             |> Ash.Query.for_read(:get_by_id, %{id: user_id})
+             |> Ash.read_one() do
+          {:ok, user} when not is_nil(user) -> user
           _ -> current_user
         end
       rescue

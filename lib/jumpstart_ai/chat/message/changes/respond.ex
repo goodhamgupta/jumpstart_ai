@@ -42,7 +42,11 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
       |> LLMChain.add_messages(message_chain)
       # add the names of tools you want available in your conversation here.
       # i.e tools: [:lookup_weather]
-      |> AshAi.setup_ash_ai(otp_app: :jumpstart_ai, tools: [], actor: context.actor)
+      |> AshAi.setup_ash_ai(
+        otp_app: :jumpstart_ai,
+        tools: [:search_emails_by_from],
+        actor: context.actor
+      )
       |> LLMChain.add_callback(%{
         on_llm_new_delta: fn _model, data ->
           if data.content && data.content != "" do
