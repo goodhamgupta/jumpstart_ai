@@ -32,7 +32,7 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
       %{
         llm:
           ChatOpenAI.new!(%{
-            model: "gpt-4o",
+            model: "gpt-4.1-2025-04-14",
             stream: true,
             custom_context: Map.new(Ash.Context.to_opts(context))
           })
