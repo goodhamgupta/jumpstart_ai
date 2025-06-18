@@ -1,4 +1,5 @@
 import Config
+
 config :langchain, openai_key: fn -> System.fetch_env!("OPENAI_API_KEY") end
 
 config :jumpstart_ai,
@@ -11,23 +12,6 @@ config :jumpstart_ai,
   hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET") || "test-secret",
   hubspot_redirect_uri:
     System.get_env("HUBSPOT_REDIRECT_URI") || "http://localhost:4000/auth/user/hubspot/callback"
-
-
-config :jumpstart_ai, JumpstartAi.Repo,
-  username: System.get_env("DB_USERNAME", "postgres"),
-  password: System.get_env("DB_PASSWORD", "postgres"),
-  hostname: System.get_env("DB_HOSTNAME", "localhost"),
-  database: System.get_env("DB_NAME", "jumpstart_ai_dev"),
-  stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: 10,
-  types: JumpstartAi.PostgrexTypes
-
-# HubSpot OAuth configuration for development
-config :jumpstart_ai,
-  hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID", "d64b76f0-8dd0-49de-a813-91b0a5a60070"),
-  hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET", ""),
-  hubspot_redirect_uri: System.get_env("HUBSPOT_REDIRECT_URI", "http://localhost:4000/auth/user/hubspot/callback")
 
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
@@ -60,12 +44,13 @@ if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :jumpstart_ai, JumpstartAi.Repo,
-    # ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    socket_options: maybe_ipv6
+    socket_options: maybe_ipv6,
+    ssl: true,
+    ssl_opts: [verify: :verify_none]
 
-  # The secret key base is used to sign/encrypt cookies and other secrets.
+u  # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
   # to check this value into version control, so we use an environment
@@ -133,19 +118,7 @@ if config_env() == :prod do
 
   # ## Configuring the mailer
   #
-  # In production you need to configure the mailer to use a different adapter.
-  # Also, you may need to configure the Swoosh API client of your choice if you
-  # are not using SMTP. Here is an example of the configuration:
-  #
-  #     config :jumpstart_ai, JumpstartAi.Mailer,
-  #       adapter: Swoosh.Adapters.Mailgun,
-  #       api_key: System.get_env("MAILGUN_API_KEY"),
-  #       domain: System.get_env("MAILGUN_DOMAIN")
-  #
-  # For this example you need include a HTTP client required by Swoosh API client.
-  # Swoosh supports Hackney and Finch out of the box:
-  #
-  #     config :swoosh, :api_client, Swoosh.ApiClient.Hackney
-  #
-  # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
+  # Disable mailer in production - just log emails to console
+  config :jumpstart_ai, JumpstartAi.Mailer,
+    adapter: Swoosh.Adapters.Test
 end
