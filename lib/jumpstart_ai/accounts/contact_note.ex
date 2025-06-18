@@ -80,7 +80,7 @@ defmodule JumpstartAi.Accounts.ContactNote do
 
                data_changed =
                  Enum.any?(vectorized_fields, fn field ->
-                   Ash.Changeset.changed?(changeset, field)
+                   Ash.Changeset.changing_attribute?(changeset, field)
                  end)
 
                if data_changed do
@@ -127,7 +127,7 @@ defmodule JumpstartAi.Accounts.ContactNote do
 
                data_changed =
                  Enum.any?(vectorized_fields, fn field ->
-                   Ash.Changeset.changed?(changeset, field)
+                   Ash.Changeset.changing_attribute?(changeset, field)
                  end)
 
                if data_changed do
