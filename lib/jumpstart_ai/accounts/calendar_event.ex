@@ -548,8 +548,9 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
               }
 
               case JumpstartAi.Accounts.CalendarEvent
-                   |> Ash.Changeset.for_create(:create_from_google, %{google_data: parsed_event})
+                   |> Ash.Changeset.new()
                    |> Ash.Changeset.change_attribute(:user_id, user.id)
+                   |> Ash.Changeset.for_create(:create_from_google, %{google_data: parsed_event})
                    |> Ash.create(actor: user, authorize?: false) do
                 {:ok, _local_event} ->
                   {:ok, %{

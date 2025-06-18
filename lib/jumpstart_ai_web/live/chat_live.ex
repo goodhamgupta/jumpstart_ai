@@ -219,6 +219,10 @@ defmodule JumpstartAiWeb.ChatLive do
     end
   end
 
+  def handle_event("select_conversation", %{"id" => conversation_id}, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/chat/#{conversation_id}")}
+  end
+
   def handle_info(
         %Phoenix.Socket.Broadcast{
           topic: "chat:messages:" <> conversation_id,
