@@ -39,6 +39,12 @@ defmodule JumpstartAiWeb.Router do
     plug :set_actor, :user
   end
 
+  pipeline :oban_auth do
+    plug Plug.BasicAuth,
+      username: System.get_env("OBAN_USERNAME") || "admin",
+      password: System.get_env("OBAN_PASSWORD") || "secret"
+  end
+
   scope "/", JumpstartAiWeb do
     pipe_through :browser
 
@@ -117,11 +123,12 @@ defmodule JumpstartAiWeb.Router do
       live_dashboard "/dashboard", metrics: JumpstartAiWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
+  end
 
-    scope "/" do
-      pipe_through :browser
+  # Oban Dashboard with basic auth protection (available in all environments)
+  scope "/" do
+    pipe_through [:browser, :oban_auth]
 
-      oban_dashboard("/oban")
-    end
+    oban_dashboard("/oban")
   end
 end
