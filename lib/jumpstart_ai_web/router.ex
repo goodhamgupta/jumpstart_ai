@@ -3,6 +3,7 @@ defmodule JumpstartAiWeb.Router do
 
   import Oban.Web.Router
   use AshAuthentication.Phoenix.Router
+  import Plug.BasicAuth
 
   import AshAuthentication.Plug.Helpers
   require Logger
@@ -40,7 +41,7 @@ defmodule JumpstartAiWeb.Router do
   end
 
   pipeline :oban_auth do
-    plug Plug.BasicAuth,
+    plug :basic_auth,
       username: System.get_env("OBAN_USERNAME") || "admin",
       password: System.get_env("OBAN_PASSWORD") || "secret"
   end
