@@ -73,22 +73,34 @@ defmodule JumpstartAi.Accounts.ContactNote do
         |> Ash.Changeset.change_attribute(:external_updated_at, note_data.updated_at)
       end
 
-      # Automatic vectorization after contact note creation/update
-      change after_action(fn _changeset, note, _context ->
-               case note
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_note} ->
-                   {:ok, updated_note}
+      # Automatic vectorization after contact note creation/update - only if data changed
+      change after_action(fn changeset, note, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [:note_type, :source, :content, :external_created_at]
 
-                 {:error, error} ->
-                   require Logger
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
 
-                   Logger.warning(
-                     "Failed to update embeddings for contact note #{note.id} from HubSpot: #{inspect(error)}"
-                   )
+               if data_changed do
+                 case note
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_note} ->
+                     {:ok, updated_note}
 
-                   {:ok, note}
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for contact note #{note.id} from HubSpot: #{inspect(error)}"
+                     )
+
+                     {:ok, note}
+                 end
+               else
+                 {:ok, note}
                end
              end)
 
@@ -105,24 +117,37 @@ defmodule JumpstartAi.Accounts.ContactNote do
         :note_type,
         :external_updated_at
       ]
+
       require_atomic? false
 
-      # Trigger manual vectorization after update
-      change after_action(fn _changeset, note, _context ->
-               case note
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_note} ->
-                   {:ok, updated_note}
+      # Trigger manual vectorization after update - only if vectorized fields changed
+      change after_action(fn changeset, note, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [:note_type, :source, :content, :external_created_at]
 
-                 {:error, error} ->
-                   require Logger
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
 
-                   Logger.warning(
-                     "Failed to update embeddings for contact note #{note.id}: #{inspect(error)}"
-                   )
+               if data_changed do
+                 case note
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_note} ->
+                     {:ok, updated_note}
 
-                   {:ok, note}
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for contact note #{note.id}: #{inspect(error)}"
+                     )
+
+                     {:ok, note}
+                 end
+               else
+                 {:ok, note}
                end
              end)
     end
@@ -232,7 +257,8 @@ defmodule JumpstartAi.Accounts.ContactNote do
 
             {sql_query, params} =
               if contact_id do
-                {base_sql <> " AND contact_id = $3 ORDER BY (full_text_vector <=> $1) DESC LIMIT $4",
+                {base_sql <>
+                   " AND contact_id = $3 ORDER BY (full_text_vector <=> $1) DESC LIMIT $4",
                  [search_vector, similarity_threshold, Ecto.UUID.dump!(contact_id), limit]}
               else
                 {base_sql <> " ORDER BY (full_text_vector <=> $1) DESC LIMIT $3",
@@ -242,18 +268,26 @@ defmodule JumpstartAi.Accounts.ContactNote do
             case JumpstartAi.Repo.query(sql_query, params) do
               {:ok, %{rows: rows}} ->
                 formatted_notes =
-                  Enum.map(rows, fn [id, contact_id, content, note_type, source, external_created_at] ->
+                  Enum.map(rows, fn [
+                                      id,
+                                      contact_id,
+                                      content,
+                                      note_type,
+                                      source,
+                                      external_created_at
+                                    ] ->
                     %{
                       "id" => Ecto.UUID.load!(id),
                       "contact_id" => Ecto.UUID.load!(contact_id),
                       "note_type" => note_type,
                       "source" => source,
-                      "created_at" => external_created_at && 
-                        (if is_struct(external_created_at, DateTime) do
-                          DateTime.to_iso8601(external_created_at)
-                        else
-                          NaiveDateTime.to_iso8601(external_created_at)
-                        end),
+                      "created_at" =>
+                        external_created_at &&
+                          if is_struct(external_created_at, DateTime) do
+                            DateTime.to_iso8601(external_created_at)
+                          else
+                            NaiveDateTime.to_iso8601(external_created_at)
+                          end,
                       "content_preview" =>
                         case content do
                           nil -> nil
@@ -295,18 +329,20 @@ defmodule JumpstartAi.Accounts.ContactNote do
         limit = input.arguments[:limit] || 10
         contact_id = input.arguments[:contact_id]
 
-        query = if contact_id do
-          JumpstartAi.Accounts.ContactNote
-          |> Ash.Query.for_read(:get_by_contact, %{contact_id: contact_id})
-        else
-          JumpstartAi.Accounts.ContactNote
-          |> Ash.Query.for_read(:read)
-        end
+        query =
+          if contact_id do
+            JumpstartAi.Accounts.ContactNote
+            |> Ash.Query.for_read(:get_by_contact, %{contact_id: contact_id})
+          else
+            JumpstartAi.Accounts.ContactNote
+            |> Ash.Query.for_read(:read)
+          end
 
-        query = query
-                |> Ash.Query.select([:contact_id, :content, :note_type, :source, :external_created_at])
-                |> Ash.Query.sort(external_created_at: :desc)
-                |> Ash.Query.limit(limit)
+        query =
+          query
+          |> Ash.Query.select([:contact_id, :content, :note_type, :source, :external_created_at])
+          |> Ash.Query.sort(external_created_at: :desc)
+          |> Ash.Query.limit(limit)
 
         case Ash.read(query, actor: context.actor, authorize?: false) do
           {:ok, notes} ->
@@ -316,7 +352,8 @@ defmodule JumpstartAi.Accounts.ContactNote do
                   "contact_id" => note.contact_id,
                   "note_type" => note.note_type || "NOTE",
                   "source" => note.source,
-                  "created_at" => note.external_created_at && DateTime.to_iso8601(note.external_created_at),
+                  "created_at" =>
+                    note.external_created_at && DateTime.to_iso8601(note.external_created_at),
                   "content_preview" =>
                     case note.content do
                       nil -> "No content"
@@ -416,5 +453,4 @@ defmodule JumpstartAi.Accounts.ContactNote do
   identities do
     identity :unique_external_note, [:contact_id, :source, :external_id]
   end
-
 end

@@ -5,7 +5,7 @@ defmodule JumpstartAi.Accounts.Contact do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAi]
-    
+
   alias JumpstartAi.TextUtils
 
   postgres do
@@ -25,12 +25,12 @@ defmodule JumpstartAi.Accounts.Contact do
         Lifecycle Stage: #{contact.lifecycle_stage || "Unknown"}
         Source: #{contact.source || "Unknown"}
         """
-        
+
         notes_content = TextUtils.clean_and_truncate(contact.notes_summary || "", 4000)
-        
+
         metadata <> "\n\nNotes Summary:\n" <> notes_content
       end
-      
+
       used_attributes [
         :firstname,
         :lastname,
@@ -42,7 +42,7 @@ defmodule JumpstartAi.Accounts.Contact do
         :notes_summary
       ]
     end
-    
+
     strategy :manual
     embedding_model JumpstartAi.OpenAiEmbeddingModel
   end
@@ -89,23 +89,44 @@ defmodule JumpstartAi.Accounts.Contact do
         |> Ash.Changeset.change_attribute(:external_updated_at, hubspot_data.updated_at)
         |> Ash.Changeset.change_attribute(:notes_summary, generate_notes_summary(hubspot_data))
       end
-      
-      # Automatic vectorization after contact creation/update
-      change after_action(fn _changeset, contact, _context ->
-               case contact
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_contact} ->
-                   {:ok, updated_contact}
-                 
-                 {:error, error} ->
-                   require Logger
-                   
-                   Logger.warning(
-                     "Failed to update embeddings for contact #{contact.id} from HubSpot: #{inspect(error)}"
-                   )
-                   
-                   {:ok, contact}
+
+      # Automatic vectorization after contact creation/update - only if data changed
+      change after_action(fn changeset, contact, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [
+                 :firstname,
+                 :lastname,
+                 :email,
+                 :company,
+                 :phone,
+                 :lifecycle_stage,
+                 :source,
+                 :notes_summary
+               ]
+
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
+
+               if data_changed do
+                 case contact
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_contact} ->
+                     {:ok, updated_contact}
+
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for contact #{contact.id} from HubSpot: #{inspect(error)}"
+                     )
+
+                     {:ok, contact}
+                 end
+               else
+                 {:ok, contact}
                end
              end)
 
@@ -147,23 +168,44 @@ defmodule JumpstartAi.Accounts.Contact do
           generate_google_notes_summary(google_data)
         )
       end
-      
-      # Automatic vectorization after contact creation/update
-      change after_action(fn _changeset, contact, _context ->
-               case contact
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_contact} ->
-                   {:ok, updated_contact}
-                 
-                 {:error, error} ->
-                   require Logger
-                   
-                   Logger.warning(
-                     "Failed to update embeddings for contact #{contact.id} from Google: #{inspect(error)}"
-                   )
-                   
-                   {:ok, contact}
+
+      # Automatic vectorization after contact creation/update - only if data changed
+      change after_action(fn changeset, contact, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [
+                 :firstname,
+                 :lastname,
+                 :email,
+                 :company,
+                 :phone,
+                 :lifecycle_stage,
+                 :source,
+                 :notes_summary
+               ]
+
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
+
+               if data_changed do
+                 case contact
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_contact} ->
+                     {:ok, updated_contact}
+
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for contact #{contact.id} from Google: #{inspect(error)}"
+                     )
+
+                     {:ok, contact}
+                 end
+               else
+                 {:ok, contact}
                end
              end)
 
@@ -189,28 +231,50 @@ defmodule JumpstartAi.Accounts.Contact do
         :notes_summary,
         :external_updated_at
       ]
+
       require_atomic? false
-      
-      # Trigger manual vectorization after update
-      change after_action(fn _changeset, contact, _context ->
-               case contact
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_contact} ->
-                   {:ok, updated_contact}
-                 
-                 {:error, error} ->
-                   require Logger
-                   
-                   Logger.warning(
-                     "Failed to update embeddings for contact #{contact.id}: #{inspect(error)}"
-                   )
-                   
-                   {:ok, contact}
+
+      # Trigger manual vectorization after update - only if vectorized fields changed
+      change after_action(fn changeset, contact, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [
+                 :firstname,
+                 :lastname,
+                 :email,
+                 :company,
+                 :phone,
+                 :lifecycle_stage,
+                 :source,
+                 :notes_summary
+               ]
+
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
+
+               if data_changed do
+                 case contact
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_contact} ->
+                     {:ok, updated_contact}
+
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for contact #{contact.id}: #{inspect(error)}"
+                     )
+
+                     {:ok, contact}
+                 end
+               else
+                 {:ok, contact}
                end
              end)
     end
-    
+
     update :vectorize do
       accept []
       change AshAi.Changes.Vectorize
@@ -294,14 +358,24 @@ defmodule JumpstartAi.Accounts.Contact do
             """
 
             case JumpstartAi.Repo.query(sql_query, [
-              Ecto.UUID.dump!(user_id),
-              search_vector,
-              similarity_threshold,
-              limit
-            ]) do
+                   Ecto.UUID.dump!(user_id),
+                   search_vector,
+                   similarity_threshold,
+                   limit
+                 ]) do
               {:ok, %{rows: rows}} ->
                 formatted_contacts =
-                  Enum.map(rows, fn [id, firstname, lastname, email, company, phone, lifecycle_stage, source, notes_summary] ->
+                  Enum.map(rows, fn [
+                                      id,
+                                      firstname,
+                                      lastname,
+                                      email,
+                                      company,
+                                      phone,
+                                      lifecycle_stage,
+                                      source,
+                                      notes_summary
+                                    ] ->
                     %{
                       "id" => Ecto.UUID.load!(id),
                       "name" => "#{firstname || ""} #{lastname || ""}" |> String.trim(),
@@ -348,7 +422,16 @@ defmodule JumpstartAi.Accounts.Contact do
 
         case JumpstartAi.Accounts.Contact
              |> Ash.Query.for_read(:get_by_user, %{user_id: user_id})
-             |> Ash.Query.select([:firstname, :lastname, :email, :company, :phone, :lifecycle_stage, :source, :external_updated_at])
+             |> Ash.Query.select([
+               :firstname,
+               :lastname,
+               :email,
+               :company,
+               :phone,
+               :lifecycle_stage,
+               :source,
+               :external_updated_at
+             ])
              |> Ash.Query.sort(external_updated_at: :desc)
              |> Ash.Query.limit(limit)
              |> Ash.read(actor: context.actor, authorize?: false) do
@@ -356,13 +439,16 @@ defmodule JumpstartAi.Accounts.Contact do
             formatted_contacts =
               Enum.map(contacts, fn contact ->
                 %{
-                  "name" => "#{contact.firstname || ""} #{contact.lastname || ""}" |> String.trim(),
+                  "name" =>
+                    "#{contact.firstname || ""} #{contact.lastname || ""}" |> String.trim(),
                   "email" => contact.email,
                   "company" => contact.company,
                   "phone" => contact.phone,
                   "lifecycle_stage" => contact.lifecycle_stage,
                   "source" => contact.source,
-                  "last_updated" => contact.external_updated_at && DateTime.to_iso8601(contact.external_updated_at)
+                  "last_updated" =>
+                    contact.external_updated_at &&
+                      DateTime.to_iso8601(contact.external_updated_at)
                 }
               end)
 
@@ -379,15 +465,15 @@ defmodule JumpstartAi.Accounts.Contact do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
       authorize_if always()
     end
-    
+
     bypass action_type(:read) do
       authorize_if AshAi.Checks.ActorIsAshAi
     end
-    
+
     bypass action(:ash_ai_update_embeddings) do
       authorize_if AshAi.Checks.ActorIsAshAi
     end
-    
+
     bypass action(:vectorize) do
       authorize_if AshAi.Checks.ActorIsAshAi
     end
@@ -527,5 +613,4 @@ defmodule JumpstartAi.Accounts.Contact do
 
     Enum.join(parts, ". ")
   end
-  
 end

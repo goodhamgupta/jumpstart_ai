@@ -297,11 +297,12 @@ defmodule JumpstartAi.GmailService do
 
     case GmailClient.draft_email(user, email_data) do
       {:ok, draft_response} ->
-        {:ok, %{
-          draft_id: draft_response["id"],
-          message_id: draft_response["message"]["id"],
-          thread_id: draft_response["message"]["threadId"]
-        }}
+        {:ok,
+         %{
+           draft_id: draft_response["id"],
+           message_id: draft_response["message"]["id"],
+           thread_id: draft_response["message"]["threadId"]
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -322,11 +323,12 @@ defmodule JumpstartAi.GmailService do
 
     case GmailClient.send_email(user, email_data) do
       {:ok, message_response} ->
-        {:ok, %{
-          message_id: message_response["id"],
-          thread_id: message_response["threadId"],
-          label_ids: message_response["labelIds"] || []
-        }}
+        {:ok,
+         %{
+           message_id: message_response["id"],
+           thread_id: message_response["threadId"],
+           label_ids: message_response["labelIds"] || []
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -365,11 +367,12 @@ defmodule JumpstartAi.GmailService do
   def send_draft(user, draft_id) do
     case GmailClient.send_draft(user, draft_id) do
       {:ok, message_response} ->
-        {:ok, %{
-          message_id: message_response["id"],
-          thread_id: message_response["threadId"],
-          label_ids: message_response["labelIds"] || []
-        }}
+        {:ok,
+         %{
+           message_id: message_response["id"],
+           thread_id: message_response["threadId"],
+           label_ids: message_response["labelIds"] || []
+         }}
 
       {:error, reason} ->
         {:error, reason}

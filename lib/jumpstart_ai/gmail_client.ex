@@ -151,7 +151,8 @@ defmodule JumpstartAi.GmailClient do
   def draft_email(user, email_data) do
     with {:ok, access_token} <- get_valid_access_token(user),
          {:ok, draft_payload} <- build_draft_payload(email_data),
-         {:ok, response} <- make_gmail_post_request(access_token, "/users/me/drafts", draft_payload) do
+         {:ok, response} <-
+           make_gmail_post_request(access_token, "/users/me/drafts", draft_payload) do
       {:ok, response}
     else
       {:error, reason} -> {:error, reason}
@@ -164,7 +165,8 @@ defmodule JumpstartAi.GmailClient do
   def send_email(user, email_data) do
     with {:ok, access_token} <- get_valid_access_token(user),
          {:ok, message_payload} <- build_message_payload(email_data),
-         {:ok, response} <- make_gmail_post_request(access_token, "/users/me/messages/send", message_payload) do
+         {:ok, response} <-
+           make_gmail_post_request(access_token, "/users/me/messages/send", message_payload) do
       {:ok, response}
     else
       {:error, reason} -> {:error, reason}
@@ -200,7 +202,8 @@ defmodule JumpstartAi.GmailClient do
   """
   def send_draft(user, draft_id) do
     with {:ok, access_token} <- get_valid_access_token(user),
-         {:ok, response} <- make_gmail_post_request(access_token, "/users/me/drafts/#{draft_id}/send", %{}) do
+         {:ok, response} <-
+           make_gmail_post_request(access_token, "/users/me/drafts/#{draft_id}/send", %{}) do
       {:ok, response}
     else
       {:error, reason} -> {:error, reason}
@@ -211,6 +214,7 @@ defmodule JumpstartAi.GmailClient do
     case build_message_payload(email_data) do
       {:ok, message_payload} ->
         {:ok, %{"message" => message_payload["message"]}}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -225,11 +229,14 @@ defmodule JumpstartAi.GmailClient do
       headers = if email_data[:to], do: [{"To", email_data.to} | headers], else: headers
       headers = if email_data[:cc], do: [{"Cc", email_data.cc} | headers], else: headers
       headers = if email_data[:bcc], do: [{"Bcc", email_data.bcc} | headers], else: headers
-      headers = if email_data[:subject], do: [{"Subject", email_data.subject} | headers], else: headers
+
+      headers =
+        if email_data[:subject], do: [{"Subject", email_data.subject} | headers], else: headers
+
       headers = [{"Content-Type", "text/plain; charset=utf-8"} | headers]
 
       # Build the raw email message
-      header_string = 
+      header_string =
         headers
         |> Enum.map(fn {key, value} -> "#{key}: #{value}" end)
         |> Enum.join("\r\n")
@@ -238,7 +245,7 @@ defmodule JumpstartAi.GmailClient do
       raw_message = header_string <> "\r\n\r\n" <> body
 
       # Encode the message in base64url format (Gmail requirement)
-      encoded_message = 
+      encoded_message =
         raw_message
         |> Base.encode64()
         |> String.replace("+", "-")
@@ -291,13 +298,15 @@ defmodule JumpstartAi.GmailClient do
 
   defp make_gmail_post_request(access_token, path, payload) do
     url = @gmail_api_base_url <> path
+
     headers = [
       {"Authorization", "Bearer #{access_token}"},
       {"Content-Type", "application/json"}
     ]
 
     case HTTPoison.post(url, Jason.encode!(payload), headers) do
-      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} when status_code in [200, 201] ->
+      {:ok, %HTTPoison.Response{status_code: status_code, body: body}}
+      when status_code in [200, 201] ->
         case Jason.decode(body) do
           {:ok, data} -> {:ok, data}
           {:error, _} -> {:error, "Failed to decode Gmail API response"}

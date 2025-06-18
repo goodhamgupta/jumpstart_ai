@@ -60,22 +60,43 @@ defmodule JumpstartAi.Accounts.Email do
       accept [:markdown_content]
       require_atomic? false
 
-      # Trigger manual vectorization after update
-      change after_action(fn _changeset, email, _context ->
-               case email
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_email} ->
-                   {:ok, updated_email}
+      # Trigger manual vectorization after update - only if vectorized fields changed
+      change after_action(fn changeset, email, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [
+                 :from_name,
+                 :from_email,
+                 :to_email,
+                 :subject,
+                 :date,
+                 :snippet,
+                 :markdown_content,
+                 :body_text
+               ]
 
-                 {:error, error} ->
-                   require Logger
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
 
-                   Logger.warning(
-                     "Failed to update embeddings for email #{email.id}: #{inspect(error)}"
-                   )
+               if data_changed do
+                 case email
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_email} ->
+                     {:ok, updated_email}
 
-                   {:ok, email}
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for email #{email.id}: #{inspect(error)}"
+                     )
+
+                     {:ok, email}
+                 end
+               else
+                 {:ok, email}
                end
              end)
     end
@@ -165,7 +186,6 @@ defmodule JumpstartAi.Accounts.Email do
       end
     end
 
-
     action :semantic_search_emails, {:array, :map} do
       description """
       Semantic search for emails using vector similarity. Searches email content, subject, and metadata for semantically similar content.
@@ -209,25 +229,35 @@ defmodule JumpstartAi.Accounts.Email do
             """
 
             case JumpstartAi.Repo.query(sql_query, [
-              Ecto.UUID.dump!(user_id),
-              search_vector,
-              similarity_threshold,
-              limit
-            ]) do
+                   Ecto.UUID.dump!(user_id),
+                   search_vector,
+                   similarity_threshold,
+                   limit
+                 ]) do
               {:ok, %{rows: rows}} ->
                 formatted_emails =
-                  Enum.map(rows, fn [id, subject, from_email, from_name, date, snippet, body_text, markdown_content] ->
+                  Enum.map(rows, fn [
+                                      id,
+                                      subject,
+                                      from_email,
+                                      from_name,
+                                      date,
+                                      snippet,
+                                      body_text,
+                                      markdown_content
+                                    ] ->
                     %{
                       "id" => Ecto.UUID.load!(id),
                       "subject" => subject || "No Subject",
                       "from_email" => from_email,
                       "from_name" => from_name,
-                      "date" => date &&
-                        (if is_struct(date, DateTime) do
-                          DateTime.to_iso8601(date)
-                        else
-                          NaiveDateTime.to_iso8601(date)
-                        end),
+                      "date" =>
+                        date &&
+                          if is_struct(date, DateTime) do
+                            DateTime.to_iso8601(date)
+                          else
+                            NaiveDateTime.to_iso8601(date)
+                          end,
                       "snippet" => snippet,
                       "content_preview" =>
                         case markdown_content || body_text do
@@ -399,15 +429,16 @@ defmodule JumpstartAi.Accounts.Email do
 
         case JumpstartAi.GmailService.draft_email(user, email_params) do
           {:ok, draft_info} ->
-            {:ok, %{
-              "status" => "success",
-              "message" => "Email drafted successfully",
-              "draft_id" => draft_info.draft_id,
-              "message_id" => draft_info.message_id,
-              "thread_id" => draft_info.thread_id,
-              "to" => input.arguments.to,
-              "subject" => input.arguments.subject
-            }}
+            {:ok,
+             %{
+               "status" => "success",
+               "message" => "Email drafted successfully",
+               "draft_id" => draft_info.draft_id,
+               "message_id" => draft_info.message_id,
+               "thread_id" => draft_info.thread_id,
+               "to" => input.arguments.to,
+               "subject" => input.arguments.subject
+             }}
 
           {:error, reason} ->
             {:error, "Failed to draft email: #{reason}"}
@@ -458,14 +489,15 @@ defmodule JumpstartAi.Accounts.Email do
 
         case JumpstartAi.GmailService.send_email(user, email_params) do
           {:ok, send_info} ->
-            {:ok, %{
-              "status" => "success",
-              "message" => "Email sent successfully",
-              "message_id" => send_info.message_id,
-              "thread_id" => send_info.thread_id,
-              "to" => input.arguments.to,
-              "subject" => input.arguments.subject
-            }}
+            {:ok,
+             %{
+               "status" => "success",
+               "message" => "Email sent successfully",
+               "message_id" => send_info.message_id,
+               "thread_id" => send_info.thread_id,
+               "to" => input.arguments.to,
+               "subject" => input.arguments.subject
+             }}
 
           {:error, reason} ->
             {:error, "Failed to send email: #{reason}"}
@@ -561,15 +593,16 @@ defmodule JumpstartAi.Accounts.Email do
 
               case JumpstartAi.GmailService.send_email(user, email_params) do
                 {:ok, send_info} ->
-                  {:ok, %{
-                    "status" => "success",
-                    "message" => "Email sent successfully using draft content",
-                    "message_id" => send_info.message_id,
-                    "thread_id" => send_info.thread_id,
-                    "draft_id" => draft_id,
-                    "to" => to,
-                    "subject" => subject
-                  }}
+                  {:ok,
+                   %{
+                     "status" => "success",
+                     "message" => "Email sent successfully using draft content",
+                     "message_id" => send_info.message_id,
+                     "thread_id" => send_info.thread_id,
+                     "draft_id" => draft_id,
+                     "to" => to,
+                     "subject" => subject
+                   }}
 
                 {:error, reason} ->
                   {:error, "Failed to send email: #{reason}"}

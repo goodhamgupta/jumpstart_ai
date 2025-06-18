@@ -120,6 +120,5 @@ if config_env() == :prod do
   # ## Configuring the mailer
   #
   # Disable mailer in production - just log emails to console
-  config :jumpstart_ai, JumpstartAi.Mailer,
-    adapter: Swoosh.Adapters.Test
+  config :jumpstart_ai, JumpstartAi.Mailer, adapter: Swoosh.Adapters.Test
 end

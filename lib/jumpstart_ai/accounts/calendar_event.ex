@@ -18,19 +18,22 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
     full_text do
       text fn event ->
         # Format attendees from JSON string
-        attendees_text = case Jason.decode(event.attendees || "[]") do
-          {:ok, attendees} when is_list(attendees) ->
-            attendees
-            |> Enum.map(fn attendee ->
-              case attendee do
-                %{"email" => email} -> email
-                email when is_binary(email) -> email
-                _ -> "Unknown"
-              end
-            end)
-            |> Enum.join(", ")
-          _ -> "No attendees"
-        end
+        attendees_text =
+          case Jason.decode(event.attendees || "[]") do
+            {:ok, attendees} when is_list(attendees) ->
+              attendees
+              |> Enum.map(fn attendee ->
+                case attendee do
+                  %{"email" => email} -> email
+                  email when is_binary(email) -> email
+                  _ -> "Unknown"
+                end
+              end)
+              |> Enum.join(", ")
+
+            _ ->
+              "No attendees"
+          end
 
         metadata = """
         Event: #{TextUtils.clean_text(event.summary || "No title")}
@@ -143,22 +146,43 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
         |> Ash.Changeset.change_attribute(:google_updated_at, google_data[:updated])
       end
 
-      # Automatic vectorization after calendar event creation/update
-      change after_action(fn _changeset, event, _context ->
-               case event
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_event} ->
-                   {:ok, updated_event}
+      # Automatic vectorization after calendar event creation/update - only if data changed
+      change after_action(fn changeset, event, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [
+                 :summary,
+                 :description,
+                 :location,
+                 :start_time,
+                 :end_time,
+                 :attendees,
+                 :organizer,
+                 :status
+               ]
 
-                 {:error, error} ->
-                   require Logger
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
 
-                   Logger.warning(
-                     "Failed to update embeddings for calendar event #{event.id} from Google: #{inspect(error)}"
-                   )
+               if data_changed do
+                 case event
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_event} ->
+                     {:ok, updated_event}
 
-                   {:ok, event}
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for calendar event #{event.id} from Google: #{inspect(error)}"
+                     )
+
+                     {:ok, event}
+                 end
+               else
+                 {:ok, event}
                end
              end)
     end
@@ -350,18 +374,43 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
                 start_date && end_date ->
                   start_datetime = DateTime.new!(start_date, ~T[00:00:00])
                   end_datetime = DateTime.new!(end_date, ~T[23:59:59])
-                  {base_sql <> " AND start_time >= $4 AND end_time <= $5 ORDER BY (full_text_vector <=> $2) DESC LIMIT $6",
-                   [Ecto.UUID.dump!(user_id), search_vector, similarity_threshold, start_datetime, end_datetime, limit]}
+
+                  {base_sql <>
+                     " AND start_time >= $4 AND end_time <= $5 ORDER BY (full_text_vector <=> $2) DESC LIMIT $6",
+                   [
+                     Ecto.UUID.dump!(user_id),
+                     search_vector,
+                     similarity_threshold,
+                     start_datetime,
+                     end_datetime,
+                     limit
+                   ]}
 
                 start_date ->
                   start_datetime = DateTime.new!(start_date, ~T[00:00:00])
-                  {base_sql <> " AND start_time >= $4 ORDER BY (full_text_vector <=> $2) DESC LIMIT $5",
-                   [Ecto.UUID.dump!(user_id), search_vector, similarity_threshold, start_datetime, limit]}
+
+                  {base_sql <>
+                     " AND start_time >= $4 ORDER BY (full_text_vector <=> $2) DESC LIMIT $5",
+                   [
+                     Ecto.UUID.dump!(user_id),
+                     search_vector,
+                     similarity_threshold,
+                     start_datetime,
+                     limit
+                   ]}
 
                 end_date ->
                   end_datetime = DateTime.new!(end_date, ~T[23:59:59])
-                  {base_sql <> " AND end_time <= $4 ORDER BY (full_text_vector <=> $2) DESC LIMIT $5",
-                   [Ecto.UUID.dump!(user_id), search_vector, similarity_threshold, end_datetime, limit]}
+
+                  {base_sql <>
+                     " AND end_time <= $4 ORDER BY (full_text_vector <=> $2) DESC LIMIT $5",
+                   [
+                     Ecto.UUID.dump!(user_id),
+                     search_vector,
+                     similarity_threshold,
+                     end_datetime,
+                     limit
+                   ]}
 
                 true ->
                   {base_sql <> " ORDER BY (full_text_vector <=> $2) DESC LIMIT $4",
@@ -371,38 +420,54 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
             case JumpstartAi.Repo.query(sql_query, params) do
               {:ok, %{rows: rows}} ->
                 formatted_events =
-                  Enum.map(rows, fn [id, summary, description, location, start_time, end_time, attendees, organizer, status] ->
+                  Enum.map(rows, fn [
+                                      id,
+                                      summary,
+                                      description,
+                                      location,
+                                      start_time,
+                                      end_time,
+                                      attendees,
+                                      organizer,
+                                      status
+                                    ] ->
                     # Parse attendees from JSON string
-                    attendees_list = case Jason.decode(attendees || "[]") do
-                      {:ok, parsed_attendees} when is_list(parsed_attendees) ->
-                        parsed_attendees
-                        |> Enum.map(fn attendee ->
-                          case attendee do
-                            %{"email" => email} -> email
-                            email when is_binary(email) -> email
-                            _ -> "Unknown"
-                          end
-                        end)
-                        |> Enum.take(5)  # Limit to first 5 attendees for brevity
-                      _ -> []
-                    end
+                    attendees_list =
+                      case Jason.decode(attendees || "[]") do
+                        {:ok, parsed_attendees} when is_list(parsed_attendees) ->
+                          parsed_attendees
+                          |> Enum.map(fn attendee ->
+                            case attendee do
+                              %{"email" => email} -> email
+                              email when is_binary(email) -> email
+                              _ -> "Unknown"
+                            end
+                          end)
+                          # Limit to first 5 attendees for brevity
+                          |> Enum.take(5)
+
+                        _ ->
+                          []
+                      end
 
                     %{
                       "id" => Ecto.UUID.load!(id),
                       "summary" => summary || "Untitled Event",
                       "location" => location,
-                      "start_time" => start_time && 
-                        (if is_struct(start_time, DateTime) do
-                          DateTime.to_iso8601(start_time)
-                        else
-                          NaiveDateTime.to_iso8601(start_time)
-                        end),
-                      "end_time" => end_time && 
-                        (if is_struct(end_time, DateTime) do
-                          DateTime.to_iso8601(end_time)
-                        else
-                          NaiveDateTime.to_iso8601(end_time)
-                        end),
+                      "start_time" =>
+                        start_time &&
+                          if is_struct(start_time, DateTime) do
+                            DateTime.to_iso8601(start_time)
+                          else
+                            NaiveDateTime.to_iso8601(start_time)
+                          end,
+                      "end_time" =>
+                        end_time &&
+                          if is_struct(end_time, DateTime) do
+                            DateTime.to_iso8601(end_time)
+                          else
+                            NaiveDateTime.to_iso8601(end_time)
+                          end,
                       "organizer" => organizer,
                       "status" => status,
                       "attendees" => attendees_list,
@@ -431,22 +496,43 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
       accept [:summary, :description, :location, :start_time, :end_time, :attendees, :status]
       require_atomic? false
 
-      # Trigger manual vectorization after update
-      change after_action(fn _changeset, event, _context ->
-               case event
-                    |> Ash.Changeset.for_update(:vectorize, %{})
-                    |> Ash.update(actor: %AshAi{}, authorize?: false) do
-                 {:ok, updated_event} ->
-                   {:ok, updated_event}
+      # Trigger manual vectorization after update - only if vectorized fields changed
+      change after_action(fn changeset, event, _context ->
+               # Check if any vectorized fields actually changed
+               vectorized_fields = [
+                 :summary,
+                 :description,
+                 :location,
+                 :start_time,
+                 :end_time,
+                 :attendees,
+                 :organizer,
+                 :status
+               ]
 
-                 {:error, error} ->
-                   require Logger
+               data_changed =
+                 Enum.any?(vectorized_fields, fn field ->
+                   Ash.Changeset.changed?(changeset, field)
+                 end)
 
-                   Logger.warning(
-                     "Failed to update embeddings for calendar event #{event.id}: #{inspect(error)}"
-                   )
+               if data_changed do
+                 case event
+                      |> Ash.Changeset.for_update(:vectorize, %{})
+                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                   {:ok, updated_event} ->
+                     {:ok, updated_event}
 
-                   {:ok, event}
+                   {:error, error} ->
+                     require Logger
+
+                     Logger.warning(
+                       "Failed to update embeddings for calendar event #{event.id}: #{inspect(error)}"
+                     )
+
+                     {:ok, event}
+                 end
+               else
+                 {:ok, event}
                end
              end)
     end
@@ -528,7 +614,6 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
           # Create event in Google Calendar
           case JumpstartAi.CalendarService.create_event(user, event_params, calendar_id) do
             {:ok, parsed_event} ->
-
               # Also create local record for sync
               local_event_params = %{
                 user_id: user.id,
@@ -553,31 +638,37 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
                    |> Ash.Changeset.for_create(:create_from_google, %{google_data: parsed_event})
                    |> Ash.create(actor: user, authorize?: false) do
                 {:ok, _local_event} ->
-                  {:ok, %{
-                    "status" => "success",
-                    "message" => "Calendar event created successfully",
-                    "event_id" => parsed_event.id,
-                    "title" => parsed_event.summary,
-                    "start_time" => parsed_event.start_time && DateTime.to_iso8601(parsed_event.start_time),
-                    "end_time" => parsed_event.end_time && DateTime.to_iso8601(parsed_event.end_time),
-                    "location" => parsed_event.location,
-                    "attendees" => Enum.map(parsed_event.attendees, &(&1.email)),
-                    "html_link" => parsed_event.html_link
-                  }}
+                  {:ok,
+                   %{
+                     "status" => "success",
+                     "message" => "Calendar event created successfully",
+                     "event_id" => parsed_event.id,
+                     "title" => parsed_event.summary,
+                     "start_time" =>
+                       parsed_event.start_time && DateTime.to_iso8601(parsed_event.start_time),
+                     "end_time" =>
+                       parsed_event.end_time && DateTime.to_iso8601(parsed_event.end_time),
+                     "location" => parsed_event.location,
+                     "attendees" => Enum.map(parsed_event.attendees, & &1.email),
+                     "html_link" => parsed_event.html_link
+                   }}
 
                 {:error, _error} ->
                   # Event created in Google but failed to save locally - still return success
-                  {:ok, %{
-                    "status" => "success",
-                    "message" => "Calendar event created successfully (Google Calendar only)",
-                    "event_id" => parsed_event.id,
-                    "title" => parsed_event.summary,
-                    "start_time" => parsed_event.start_time && DateTime.to_iso8601(parsed_event.start_time),
-                    "end_time" => parsed_event.end_time && DateTime.to_iso8601(parsed_event.end_time),
-                    "location" => parsed_event.location,
-                    "attendees" => Enum.map(parsed_event.attendees, &(&1.email)),
-                    "html_link" => parsed_event.html_link
-                  }}
+                  {:ok,
+                   %{
+                     "status" => "success",
+                     "message" => "Calendar event created successfully (Google Calendar only)",
+                     "event_id" => parsed_event.id,
+                     "title" => parsed_event.summary,
+                     "start_time" =>
+                       parsed_event.start_time && DateTime.to_iso8601(parsed_event.start_time),
+                     "end_time" =>
+                       parsed_event.end_time && DateTime.to_iso8601(parsed_event.end_time),
+                     "location" => parsed_event.location,
+                     "attendees" => Enum.map(parsed_event.attendees, & &1.email),
+                     "html_link" => parsed_event.html_link
+                   }}
               end
 
             {:error, reason} ->
@@ -604,7 +695,15 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
 
         case JumpstartAi.Accounts.CalendarEvent
              |> Ash.Query.for_read(:list_by_user, %{user_id: user_id})
-             |> Ash.Query.select([:summary, :location, :start_time, :end_time, :attendees, :organizer, :status])
+             |> Ash.Query.select([
+               :summary,
+               :location,
+               :start_time,
+               :end_time,
+               :attendees,
+               :organizer,
+               :status
+             ])
              |> Ash.Query.sort(start_time: :desc)
              |> Ash.Query.limit(limit)
              |> Ash.read(actor: context.actor, authorize?: false) do
@@ -612,19 +711,23 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
             formatted_events =
               Enum.map(events, fn event ->
                 # Parse attendees from JSON string  
-                attendees_list = case Jason.decode(event.attendees || "[]") do
-                  {:ok, parsed_attendees} when is_list(parsed_attendees) ->
-                    parsed_attendees
-                    |> Enum.map(fn attendee ->
-                      case attendee do
-                        %{"email" => email} -> email
-                        email when is_binary(email) -> email
-                        _ -> "Unknown"
-                      end
-                    end)
-                    |> Enum.take(3)  # Limit to first 3 attendees for brevity
-                  _ -> []
-                end
+                attendees_list =
+                  case Jason.decode(event.attendees || "[]") do
+                    {:ok, parsed_attendees} when is_list(parsed_attendees) ->
+                      parsed_attendees
+                      |> Enum.map(fn attendee ->
+                        case attendee do
+                          %{"email" => email} -> email
+                          email when is_binary(email) -> email
+                          _ -> "Unknown"
+                        end
+                      end)
+                      # Limit to first 3 attendees for brevity
+                      |> Enum.take(3)
+
+                    _ ->
+                      []
+                  end
 
                 %{
                   "summary" => event.summary || "Untitled Event",
@@ -795,6 +898,4 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
   identities do
     identity :unique_google_event_per_user, [:user_id, :google_event_id]
   end
-
-
 end
