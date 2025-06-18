@@ -72,7 +72,8 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
           :list_emails,
           :list_contacts,
           :list_contact_notes,
-          :list_calendar_events
+          :list_calendar_events,
+          :find_contact,
         ],
         actor: context.actor
       )
