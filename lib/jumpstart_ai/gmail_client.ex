@@ -213,7 +213,7 @@ defmodule JumpstartAi.GmailClient do
   defp build_draft_payload(email_data) do
     case build_message_payload(email_data) do
       {:ok, message_payload} ->
-        {:ok, %{"message" => message_payload["message"]}}
+        {:ok, %{"message" => message_payload}}
 
       {:error, reason} ->
         {:error, reason}
@@ -226,12 +226,12 @@ defmodule JumpstartAi.GmailClient do
       headers = []
       # Add From header (use the authenticated user's email)
       headers = [{"From", email_data[:from] || email_data[:to]} | headers]
-      headers = if email_data[:to], do: [{"To", email_data.to} | headers], else: headers
-      headers = if email_data[:cc], do: [{"Cc", email_data.cc} | headers], else: headers
-      headers = if email_data[:bcc], do: [{"Bcc", email_data.bcc} | headers], else: headers
+      headers = if email_data[:to], do: [{"To", email_data[:to]} | headers], else: headers
+      headers = if email_data[:cc], do: [{"Cc", email_data[:cc]} | headers], else: headers
+      headers = if email_data[:bcc], do: [{"Bcc", email_data[:bcc]} | headers], else: headers
 
       headers =
-        if email_data[:subject], do: [{"Subject", email_data.subject} | headers], else: headers
+        if email_data[:subject], do: [{"Subject", email_data[:subject]} | headers], else: headers
 
       headers = [{"Content-Type", "text/plain; charset=utf-8"} | headers]
 
@@ -253,9 +253,7 @@ defmodule JumpstartAi.GmailClient do
         |> String.replace("=", "")
 
       payload = %{
-        "message" => %{
-          "raw" => encoded_message
-        }
+        "raw" => encoded_message
       }
 
       {:ok, payload}
