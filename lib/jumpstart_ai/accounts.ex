@@ -89,6 +89,13 @@ defmodule JumpstartAi.Accounts do
       Use this to give users an overview of their upcoming or recent calendar events.
       """
     end
+
+    tool :find_contact, JumpstartAi.Accounts.Contact, :find_contact do
+      description """
+      Find contacts by searching name, email, or company. Uses exact matching and wildcards to locate specific contacts.
+      Use this when you need to find a specific contact based on partial information like first name, last name, email address, or company name.
+      """
+    end
   end
 
   resources do

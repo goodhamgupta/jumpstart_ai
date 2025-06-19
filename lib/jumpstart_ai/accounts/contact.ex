@@ -112,7 +112,11 @@ defmodule JumpstartAi.Accounts.Contact do
                if data_changed do
                  case contact
                       |> Ash.Changeset.for_update(:vectorize, %{})
-                      |> Ash.update(actor: %AshAi{}, authorize?: false) do
+                      |> Ash.update(
+                        actor: %AshAi{},
+                        authorize?: false,
+                        return_notifications?: true
+                      ) do
                    {:ok, updated_contact} ->
                      {:ok, updated_contact}
 
@@ -303,16 +307,75 @@ defmodule JumpstartAi.Accounts.Contact do
       filter expr(email == ^arg(:email))
     end
 
-    read :find_contact do
-      description "Find contacts by name, email, or company"
-      argument :query, :string, allow_nil?: false
+    action :find_contact, {:array, :map} do
+      description """
+      Find contacts by searching name, email, or company. Uses pattern matching to find contacts that match the search query.
+      """
 
-      filter expr(
-               ilike(firstname, ^arg(:query)) or
-                 ilike(lastname, ^arg(:query)) or
-                 ilike(email, ^arg(:query)) or
-                 ilike(company, ^arg(:query))
-             )
+      argument :query, :string do
+        allow_nil? false
+        description "Search query to find contacts by name, email, or company"
+      end
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 10
+        description "Maximum number of results to return (default: 10)"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        search_query = "%#{input.arguments.query}%"
+        limit = input.arguments.limit || 10
+
+        # Use raw SQL to search across contact fields
+        sql_query = """
+        SELECT id, firstname, lastname, email, company, phone, lifecycle_stage, source
+        FROM contacts
+        WHERE user_id = $1
+          AND (
+            firstname ILIKE $2 OR
+            lastname ILIKE $2 OR
+            email ILIKE $2 OR
+            company ILIKE $2
+          )
+        ORDER BY external_updated_at DESC
+        LIMIT $3
+        """
+
+        case JumpstartAi.Repo.query(sql_query, [
+               Ecto.UUID.dump!(user_id),
+               search_query,
+               limit
+             ]) do
+          {:ok, %{rows: rows}} ->
+            formatted_contacts =
+              Enum.map(rows, fn [
+                                  _id,
+                                  firstname,
+                                  lastname,
+                                  email,
+                                  company,
+                                  phone,
+                                  lifecycle_stage,
+                                  source
+                                ] ->
+                %{
+                  "name" => "#{firstname || ""} #{lastname || ""}" |> String.trim(),
+                  "email" => email,
+                  "company" => company,
+                  "phone" => phone,
+                  "lifecycle_stage" => lifecycle_stage,
+                  "source" => source
+                }
+              end)
+
+            {:ok, formatted_contacts}
+
+          {:error, error} ->
+            {:error, "Failed to find contacts: #{inspect(error)}"}
+        end
+      end
     end
 
     action :semantic_search_contacts, {:array, :map} do
@@ -483,6 +546,10 @@ defmodule JumpstartAi.Accounts.Contact do
     end
 
     bypass action(:list_contacts) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:find_contact) do
       authorize_if actor_present()
     end
 

@@ -374,6 +374,18 @@ defmodule JumpstartAi.Accounts.User do
       end
     end
 
+    update :system_update_tokens do
+      description "System update for token refresh - bypasses authentication policies"
+      require_atomic? false
+
+      accept [
+        :hubspot_access_token,
+        :hubspot_refresh_token,
+        :hubspot_token_expires_at,
+        :hubspot_portal_id
+      ]
+    end
+
     update :sync_gmail_emails do
       require_atomic? false
       accept []
@@ -651,6 +663,10 @@ defmodule JumpstartAi.Accounts.User do
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
+      authorize_if always()
+    end
+
+    policy action(:system_update_tokens) do
       authorize_if always()
     end
 

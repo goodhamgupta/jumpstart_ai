@@ -501,9 +501,9 @@ defmodule JumpstartAi.HubSpotService do
               expires_in = tokens["expires_in"] || 21600
               expires_at = DateTime.utc_now() |> DateTime.add(expires_in, :second)
 
-              # Update user with new tokens
+              # Update user with new tokens using system action
               user
-              |> Ash.Changeset.for_update(:update, %{
+              |> Ash.Changeset.for_update(:system_update_tokens, %{
                 hubspot_access_token: access_token,
                 hubspot_refresh_token: tokens["refresh_token"] || user.hubspot_refresh_token,
                 hubspot_token_expires_at: expires_at
