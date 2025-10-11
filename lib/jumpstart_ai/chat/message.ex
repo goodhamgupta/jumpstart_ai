@@ -34,7 +34,7 @@ defmodule JumpstartAi.Chat.Message do
       argument :conversation_id, :uuid, allow_nil?: false
 
       prepare build(default_sort: [inserted_at: :desc])
-      filter expr(conversation_id == ^arg(:conversation_id))
+      filter expr(conversation_id == ^arg(:conversation_id) and complete == true)
     end
 
     create :create do
@@ -57,23 +57,31 @@ defmodule JumpstartAi.Chat.Message do
 
     create :upsert_response do
       upsert? true
+      upsert_identity :primary_key
       accept [:id, :response_to_id, :conversation_id]
       argument :complete, :boolean, default: false
       argument :text, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true]
       argument :tool_calls, {:array, :map}
       argument :tool_results, {:array, :map}
 
+      # if creating, set the attributes to the provided values
+      change set_attribute(:text, arg(:text))
+      change set_attribute(:complete, arg(:complete))
+      change set_attribute(:source, :agent)
+      change set_attribute(:tool_results, arg(:tool_results))
+      change set_attribute(:tool_calls, arg(:tool_calls))
+
       # if updating
       #   if complete, set the text to the provided text
-      #   if streaming still, add the text to the provided text
+      #   if streaming still, append the text to the existing text
       change atomic_update(
                :text,
                {:atomic,
                 expr(
                   if ^arg(:complete) do
-                    ^arg(:text)
+                    fragment("EXCLUDED.\"text\"")
                   else
-                    ^atomic_ref(:text) <> ^arg(:text)
+                    fragment("COALESCE(m0.\"text\", '') || EXCLUDED.\"text\"")
                   end
                 )}
              )
@@ -116,15 +124,8 @@ defmodule JumpstartAi.Chat.Message do
                 )}
              )
 
-      # if creating, set the text attribute to the provided text
-      change set_attribute(:text, arg(:text))
-      change set_attribute(:complete, arg(:complete))
-      change set_attribute(:source, :agent)
-      change set_attribute(:tool_results, arg(:tool_results))
-      change set_attribute(:tool_calls, arg(:tool_calls))
-
-      # on update, only set complete to its new value
-      upsert_fields [:complete]
+      # on update, update these fields
+      upsert_fields [:text, :complete, :tool_calls, :tool_results]
     end
   end
 
@@ -134,13 +135,13 @@ defmodule JumpstartAi.Chat.Message do
 
     publish :create, ["messages", :conversation_id] do
       transform fn %{data: message} ->
-        %{text: message.text, id: message.id, source: message.source}
+        %{text: message.text, id: message.id, source: message.source, complete: message.complete}
       end
     end
 
     publish :upsert_response, ["messages", :conversation_id] do
       transform fn %{data: message} ->
-        %{text: message.text, id: message.id, source: message.source}
+        %{text: message.text, id: message.id, source: message.source, complete: message.complete}
       end
     end
   end
@@ -184,6 +185,10 @@ defmodule JumpstartAi.Chat.Message do
       public? true
       destination_attribute :response_to_id
     end
+  end
+
+  identities do
+    identity :primary_key, [:id]
   end
 
   calculations do

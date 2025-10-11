@@ -5,6 +5,20 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
 
+  defp to_text(nil), do: ""
+  defp to_text(s) when is_binary(s), do: s
+  defp to_text(%LangChain.Message.ContentPart{type: :text, content: c}) when is_binary(c), do: c
+  defp to_text(%LangChain.Message.ContentPart{}), do: ""
+
+  defp to_text(parts) when is_list(parts) do
+    parts
+    |> Enum.map(&to_text/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp to_text(_), do: ""
+
   @impl true
   def change(changeset, _opts, context) do
     Ash.Changeset.before_transaction(changeset, fn changeset ->
@@ -47,7 +61,7 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
       %{
         llm:
           ChatOpenAI.new!(%{
-            model: "gpt-4.1-2025-04-14",
+            model: "gpt-5-mini-2025-08-07",
             stream: true,
             custom_context: Map.new(Ash.Context.to_opts(context))
           })
@@ -78,8 +92,14 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
         actor: context.actor
       )
       |> LLMChain.add_callback(%{
-        on_llm_new_delta: fn _model, data ->
-          if data.content && data.content != "" do
+        on_llm_new_delta: fn _chain, deltas ->
+          content =
+            deltas
+            |> Enum.map(& &1.content)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.join("")
+
+          if content != "" do
             JumpstartAi.Chat.Message
             |> Ash.Changeset.for_create(
               :upsert_response,
@@ -87,7 +107,7 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
                 id: new_message_id,
                 response_to_id: message.id,
                 conversation_id: message.conversation_id,
-                text: data.content
+                text: content
               },
               actor: %AshAi{}
             )
@@ -95,9 +115,11 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
           end
         end,
         on_message_processed: fn _chain, data ->
+          text = to_text(data.content)
+
           if (data.tool_calls && Enum.any?(data.tool_calls)) ||
                (data.tool_results && Enum.any?(data.tool_results)) ||
-               data.content not in [nil, ""] do
+               text != "" do
             JumpstartAi.Chat.Message
             |> Ash.Changeset.for_create(
               :upsert_response,
@@ -126,7 +148,7 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
                         :options
                       ])
                     ),
-                text: data.content || ""
+                text: text
               },
               actor: %AshAi{}
             )

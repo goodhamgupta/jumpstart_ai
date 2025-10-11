@@ -67,6 +67,24 @@ defmodule JumpstartAiWeb.ChatLive do
                 </div>
               </div>
             <% end %>
+            <%= if @streaming_message do %>
+              <div
+                id={"streaming-#{@streaming_message.id}"}
+                class="chat chat-start"
+              >
+                <div class="chat-image avatar">
+                  <div class="w-10 rounded-full bg-base-300 p-1">
+                    <img
+                      src="https://github.com/ash-project/ash_ai/blob/main/logos/ash_ai.png?raw=true"
+                      alt="Logo"
+                    />
+                  </div>
+                </div>
+                <div class="chat-bubble text-lg leading-relaxed whitespace-pre-wrap">
+                  <%= @streaming_message.text %>
+                </div>
+              </div>
+            <% end %>
           </div>
         </div>
         <div class="p-4 border-t border-base-300 bg-base-200 flex-shrink-0">
@@ -156,6 +174,7 @@ defmodule JumpstartAiWeb.ChatLive do
         JumpstartAi.Chat.my_conversations!(actor: socket.assigns.current_user)
       )
       |> assign(:messages, [])
+      |> assign(:streaming_message, nil)
 
     {:ok, socket}
   end
@@ -190,6 +209,7 @@ defmodule JumpstartAiWeb.ChatLive do
 
     socket
     |> assign(:conversation, nil)
+    |> assign(:streaming_message, nil)
     |> stream(:messages, [])
     |> assign_message_form()
     |> then(&{:noreply, &1})
@@ -226,12 +246,40 @@ defmodule JumpstartAiWeb.ChatLive do
   def handle_info(
         %Phoenix.Socket.Broadcast{
           topic: "chat:messages:" <> conversation_id,
-          payload: message
+          payload: %{source: source, complete: complete, id: id} = message
         },
         socket
       ) do
+
     if socket.assigns.conversation && socket.assigns.conversation.id == conversation_id do
-      {:noreply, stream_insert(socket, :messages, message, at: 0)}
+      cond do
+        source == :agent && complete == false ->
+          Logger.debug("Updating streaming message, removing any duplicate from stream")
+          socket =
+            socket
+            |> stream_delete(:messages, %{id: id})
+            |> assign(:streaming_message, message)
+          {:noreply, socket}
+
+        source == :agent && complete == true ->
+          Logger.debug("Completing streaming message, adding to stream")
+
+          # Only insert if we were actually streaming this message
+          socket = if socket.assigns.streaming_message && socket.assigns.streaming_message.id == id do
+            socket
+            |> assign(:streaming_message, nil)
+            |> stream_insert(:messages, message, at: 0)
+          else
+            # If we weren't streaming, still insert the complete message
+            stream_insert(socket, :messages, message, at: 0)
+          end
+
+          {:noreply, socket}
+
+        true ->
+          Logger.debug("Adding message to stream (user or other)")
+          {:noreply, stream_insert(socket, :messages, message, at: 0)}
+      end
     else
       {:noreply, socket}
     end
