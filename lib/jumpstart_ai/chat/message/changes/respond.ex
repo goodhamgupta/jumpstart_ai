@@ -19,6 +19,40 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
 
   defp to_text(_), do: ""
 
+  defp extract_thinking_content(nil), do: ""
+
+  # Handle Anthropic thinking content
+  defp extract_thinking_content(%LangChain.Message.ContentPart{type: :thinking, content: c}) when is_binary(c), do: c
+
+  # Handle OpenAI reasoning summary (stored as :unsupported with type: "reasoning")
+  defp extract_thinking_content(%LangChain.Message.ContentPart{type: :unsupported, options: options}) do
+    case options do
+      %{type: "reasoning", summary: summary} when is_binary(summary) -> summary
+      _ -> ""
+    end
+  end
+
+  defp extract_thinking_content(%LangChain.Message.ContentPart{}), do: ""
+
+  defp extract_thinking_content(parts) when is_list(parts) do
+    parts
+    |> Enum.filter(fn part ->
+      match?(%LangChain.Message.ContentPart{type: :thinking}, part) ||
+        (match?(%LangChain.Message.ContentPart{type: :unsupported, options: %{type: "reasoning"}}, part))
+    end)
+    |> Enum.map(fn part ->
+      case part do
+        %{type: :thinking, content: c} -> c
+        %{type: :unsupported, options: %{summary: s}} -> s
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp extract_thinking_content(_), do: ""
+
   @impl true
   def change(changeset, _opts, context) do
     Ash.Changeset.before_transaction(changeset, fn changeset ->
@@ -28,7 +62,7 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
         JumpstartAi.Chat.Message
         |> Ash.Query.filter(conversation_id == ^message.conversation_id)
         |> Ash.Query.filter(id != ^message.id)
-        |> Ash.Query.select([:text, :source, :tool_calls, :tool_results])
+        |> Ash.Query.select([:text, :source, :tool_calls, :tool_results, :reasoning_content])
         |> Ash.Query.sort(inserted_at: :desc)
         |> Ash.read!()
         |> Enum.concat([%{source: :user, text: message.text}])
@@ -63,6 +97,8 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
           ChatOpenAI.new!(%{
             model: "gpt-5-mini-2025-08-07",
             stream: true,
+            reasoning_mode: true,
+            reasoning_effort: "medium",
             custom_context: Map.new(Ash.Context.to_opts(context))
           })
       }
@@ -97,16 +133,49 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
             |> Enum.reject(&is_nil/1)
             |> Enum.join("")
 
-          if content != "" do
+          # Extract thinking/reasoning content from deltas
+          thinking_content =
+            deltas
+            |> Enum.flat_map(fn delta ->
+              case delta.merged_content do
+                parts when is_list(parts) -> parts
+                part when not is_nil(part) -> [part]
+                _ -> []
+              end
+            end)
+            |> Enum.filter(fn part ->
+              match?(%LangChain.Message.ContentPart{type: :thinking}, part) ||
+                match?(%LangChain.Message.ContentPart{type: :unsupported, options: %{type: "reasoning"}}, part)
+            end)
+            |> Enum.map(fn part ->
+              case part do
+                %{type: :thinking, content: c} -> c
+                %{type: :unsupported, options: %{summary: s}} -> s
+                _ -> nil
+              end
+            end)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.join("")
+
+          if content != "" || thinking_content != "" do
+            params = %{
+              id: new_message_id,
+              response_to_id: message.id,
+              conversation_id: message.conversation_id
+            }
+
+            params =
+              if content != "", do: Map.put(params, :text, content), else: params
+
+            params =
+              if thinking_content != "",
+                do: Map.put(params, :reasoning_content, thinking_content),
+                else: params
+
             JumpstartAi.Chat.Message
             |> Ash.Changeset.for_create(
               :upsert_response,
-              %{
-                id: new_message_id,
-                response_to_id: message.id,
-                conversation_id: message.conversation_id,
-                text: content
-              },
+              params,
               actor: %AshAi{}
             )
             |> Ash.create!()
@@ -114,44 +183,53 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
         end,
         on_message_processed: fn _chain, data ->
           text = to_text(data.content)
+          thinking = extract_thinking_content(data.content)
 
           if (data.tool_calls && Enum.any?(data.tool_calls)) ||
                (data.tool_results && Enum.any?(data.tool_results)) ||
-               text != "" do
+               text != "" ||
+               thinking != "" do
+            params = %{
+              id: new_message_id,
+              response_to_id: message.id,
+              conversation_id: message.conversation_id,
+              complete: true,
+              tool_calls:
+                data.tool_calls &&
+                  Enum.map(
+                    data.tool_calls,
+                    &Map.take(&1, [:status, :type, :call_id, :name, :arguments, :index])
+                  ),
+              tool_results:
+                data.tool_results &&
+                  Enum.map(
+                    data.tool_results,
+                    fn tool_result ->
+                      tool_result
+                      |> Map.take([
+                        :type,
+                        :tool_call_id,
+                        :name,
+                        :content,
+                        :display_text,
+                        :is_error,
+                        :options
+                      ])
+                      |> Map.update(:content, nil, &to_text/1)
+                    end
+                  ),
+              text: text
+            }
+
+            params =
+              if thinking != "",
+                do: Map.put(params, :reasoning_content, thinking),
+                else: params
+
             JumpstartAi.Chat.Message
             |> Ash.Changeset.for_create(
               :upsert_response,
-              %{
-                id: new_message_id,
-                response_to_id: message.id,
-                conversation_id: message.conversation_id,
-                complete: true,
-                tool_calls:
-                  data.tool_calls &&
-                    Enum.map(
-                      data.tool_calls,
-                      &Map.take(&1, [:status, :type, :call_id, :name, :arguments, :index])
-                    ),
-                tool_results:
-                  data.tool_results &&
-                    Enum.map(
-                      data.tool_results,
-                      fn tool_result ->
-                        tool_result
-                        |> Map.take([
-                          :type,
-                          :tool_call_id,
-                          :name,
-                          :content,
-                          :display_text,
-                          :is_error,
-                          :options
-                        ])
-                        |> Map.update(:content, nil, &to_text/1)
-                      end
-                    ),
-                text: text
-              },
+              params,
               actor: %AshAi{}
             )
             |> Ash.create!()

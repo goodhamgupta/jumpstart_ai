@@ -63,10 +63,38 @@ defmodule JumpstartAiWeb.ChatLive do
                   </div>
                 </div>
                 <div class="chat-bubble text-lg leading-relaxed">
+                  <div :if={message.source == :agent && message.reasoning_content && message.reasoning_content != ""} class="mb-4 p-3 bg-base-100 rounded-lg border border-base-content/10">
+                    <details class="collapse collapse-arrow bg-base-200 rounded-box">
+                      <summary class="collapse-title text-sm font-medium text-base-content/70">
+                        View reasoning process
+                      </summary>
+                      <div class="collapse-content">
+                        <div class="text-sm text-base-content/80 whitespace-pre-wrap mt-2">
+                          <.markdown text={message.reasoning_content} />
+                        </div>
+                      </div>
+                    </details>
+                  </div>
                   <.markdown text={message.text} />
                 </div>
               </div>
             <% end %>
+          </div>
+          <div :if={@thinking} class="px-4 py-2 flex items-center gap-2 text-base-content/70">
+            <div class="chat chat-start">
+              <div class="chat-image avatar">
+                <div class="w-10 rounded-full bg-base-300 p-1">
+                  <img
+                    src="https://github.com/ash-project/ash_ai/blob/main/logos/ash_ai.png?raw=true"
+                    alt="Logo"
+                  />
+                </div>
+              </div>
+              <div class="chat-bubble bg-base-300 text-base-content flex items-center gap-2">
+                <span class="loading loading-dots loading-sm"></span>
+                <span class="text-sm">Thinking...</span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="p-4 border-t border-base-300 bg-base-200 flex-shrink-0">
@@ -151,6 +179,7 @@ defmodule JumpstartAiWeb.ChatLive do
     socket =
       socket
       |> assign(:page_title, "Chat")
+      |> assign(:thinking, false)
       |> stream(
         :conversations,
         JumpstartAi.Chat.my_conversations!(actor: socket.assigns.current_user)
@@ -226,18 +255,30 @@ defmodule JumpstartAiWeb.ChatLive do
   def handle_info(
         %Phoenix.Socket.Broadcast{
           topic: "chat:messages:" <> conversation_id,
-          payload: %{source: source, complete: complete, id: id} = message
+          payload: %{source: source, complete: complete, id: _id} = message
         },
         socket
       ) do
     if socket.assigns.conversation && socket.assigns.conversation.id == conversation_id do
       cond do
+        source == :user ->
+          # User message received - show thinking indicator
+          socket = socket
+          |> stream_insert(:messages, message, at: 0)
+          |> assign(:thinking, true)
+          {:noreply, socket}
+
         source == :agent && complete == false ->
-          socket = socket |> stream_insert(:messages, message, at: 0)
+          # Agent started responding - hide thinking indicator
+          socket = socket
+          |> stream_insert(:messages, message, at: 0)
+          |> assign(:thinking, false)
           {:noreply, socket}
 
         source == :agent && complete == true ->
-          socket = socket |> stream_insert(:messages, message, at: 0)
+          socket = socket
+          |> stream_insert(:messages, message, at: 0)
+          |> assign(:thinking, false)
           {:noreply, socket}
 
         true ->

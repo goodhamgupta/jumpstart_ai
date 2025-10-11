@@ -61,6 +61,7 @@ defmodule JumpstartAi.Chat.Message do
       accept [:id, :response_to_id, :conversation_id]
       argument :complete, :boolean, default: false
       argument :text, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true]
+      argument :reasoning_content, :string, constraints: [trim?: false, allow_empty?: true]
       argument :tool_calls, {:array, :map}
       argument :tool_results, {:array, :map}
 
@@ -68,6 +69,7 @@ defmodule JumpstartAi.Chat.Message do
       change set_attribute(:text, arg(:text))
       change set_attribute(:complete, arg(:complete))
       change set_attribute(:source, :agent)
+      change set_attribute(:reasoning_content, arg(:reasoning_content))
       change set_attribute(:tool_results, arg(:tool_results))
       change set_attribute(:tool_calls, arg(:tool_calls))
 
@@ -124,8 +126,20 @@ defmodule JumpstartAi.Chat.Message do
                 )}
              )
 
+      change atomic_update(
+               :reasoning_content,
+               {:atomic,
+                expr(
+                  if ^arg(:complete) do
+                    fragment("EXCLUDED.\"reasoning_content\"")
+                  else
+                    fragment("COALESCE(m0.\"reasoning_content\", '') || COALESCE(EXCLUDED.\"reasoning_content\", '')")
+                  end
+                )}
+             )
+
       # on update, update these fields
-      upsert_fields [:text, :complete, :tool_calls, :tool_results]
+      upsert_fields [:text, :complete, :tool_calls, :tool_results, :reasoning_content]
     end
   end
 
@@ -135,13 +149,13 @@ defmodule JumpstartAi.Chat.Message do
 
     publish :create, ["messages", :conversation_id] do
       transform fn %{data: message} ->
-        %{text: message.text, id: message.id, source: message.source, complete: message.complete}
+        %{text: message.text, id: message.id, source: message.source, complete: message.complete, reasoning_content: message.reasoning_content}
       end
     end
 
     publish :upsert_response, ["messages", :conversation_id] do
       transform fn %{data: message} ->
-        %{text: message.text, id: message.id, source: message.source, complete: message.complete}
+        %{text: message.text, id: message.id, source: message.source, complete: message.complete, reasoning_content: message.reasoning_content}
       end
     end
   end
@@ -154,6 +168,11 @@ defmodule JumpstartAi.Chat.Message do
       constraints allow_empty?: true, trim?: false
       public? true
       allow_nil? false
+    end
+
+    attribute :reasoning_content, :string do
+      constraints allow_empty?: true, trim?: false
+      public? true
     end
 
     attribute :tool_calls, {:array, :map}
