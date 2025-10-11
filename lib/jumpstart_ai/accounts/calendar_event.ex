@@ -556,11 +556,13 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
 
       argument :description, :string do
         allow_nil? true
+        default nil
         description "Event description/agenda"
       end
 
       argument :location, :string do
         allow_nil? true
+        default nil
         description "Event location (physical address or virtual meeting link)"
       end
 
@@ -596,20 +598,24 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
         user = context.actor
 
         # Validate start and end times
-        if DateTime.compare(input.arguments.start_time, input.arguments.end_time) != :lt do
+        start_time = Map.get(input.arguments, :start_time)
+        end_time = Map.get(input.arguments, :end_time)
+
+        if DateTime.compare(start_time, end_time) != :lt do
           {:error, "Start time must be before end time"}
         else
           # Prepare event parameters for Google Calendar API
+          # Use Map.get to safely access ALL fields
           event_params = %{
-            title: input.arguments.title,
-            description: input.arguments.description,
-            location: input.arguments.location,
-            start_time: input.arguments.start_time,
-            end_time: input.arguments.end_time,
-            attendees: input.arguments.attendee_emails || []
+            title: Map.get(input.arguments, :title),
+            description: Map.get(input.arguments, :description),
+            location: Map.get(input.arguments, :location),
+            start_time: start_time,
+            end_time: end_time,
+            attendees: Map.get(input.arguments, :attendee_emails, [])
           }
 
-          calendar_id = input.arguments.calendar_id || "primary"
+          calendar_id = Map.get(input.arguments, :calendar_id, "primary")
 
           # Create event in Google Calendar
           case JumpstartAi.CalendarService.create_event(user, event_params, calendar_id) do

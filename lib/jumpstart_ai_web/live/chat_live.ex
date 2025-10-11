@@ -233,10 +233,7 @@ defmodule JumpstartAiWeb.ChatLive do
     if socket.assigns.conversation && socket.assigns.conversation.id == conversation_id do
       cond do
         source == :agent && complete == false ->
-          socket =
-            socket
-            |> stream_delete(:messages, %{id: id})
-
+          socket = socket |> stream_insert(:messages, message, at: 0)
           {:noreply, socket}
 
         source == :agent && complete == true ->

@@ -236,12 +236,14 @@ defmodule JumpstartAi.CalendarService do
 
   defp format_event_for_api(params) do
     base_event = %{
-      "summary" => params[:title] || params[:summary],
-      "description" => params[:description],
-      "location" => params[:location]
+      "summary" => params[:title] || params[:summary]
     }
 
-    # Add start and end times
+    base_event =
+      base_event
+      |> maybe_put("description", params[:description])
+      |> maybe_put("location", params[:location])
+
     event_with_times =
       case {params[:start_time], params[:end_time]} do
         {start_time, end_time} when not is_nil(start_time) and not is_nil(end_time) ->
@@ -270,6 +272,9 @@ defmodule JumpstartAi.CalendarService do
         event_with_times
     end
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp extract_busy_times(calendars) do
     calendars

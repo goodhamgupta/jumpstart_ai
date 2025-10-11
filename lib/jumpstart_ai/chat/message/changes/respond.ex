@@ -69,8 +69,6 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
       |> LLMChain.new!()
       |> LLMChain.add_message(system_prompt)
       |> LLMChain.add_messages(message_chain)
-      # add the names of tools you want available in your conversation here.
-      # i.e tools: [:lookup_weather]
       |> AshAi.setup_ash_ai(
         otp_app: :jumpstart_ai,
         tools: [
@@ -169,18 +167,34 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
   defp message_chain(messages) do
     Enum.flat_map(messages, fn
       %{source: :agent} = message ->
-        langchain_message =
-          LangChain.Message.new_assistant!(%{
-            content: message.text,
-            tool_calls:
-              message.tool_calls &&
-                Enum.map(
-                  message.tool_calls,
-                  &LangChain.Message.ToolCall.new!(
-                    Map.take(&1, ["status", "type", "call_id", "name", "arguments", "index"])
-                  )
+        # Build the message params, conditionally including content
+        # OpenAI API requires content to be a non-null string or omitted when there are tool calls
+        message_params = %{}
+
+        message_params =
+          if message.tool_calls && !Enum.empty?(message.tool_calls) do
+            Map.put(
+              message_params,
+              :tool_calls,
+              Enum.map(
+                message.tool_calls,
+                &LangChain.Message.ToolCall.new!(
+                  Map.take(&1, ["status", "type", "call_id", "name", "arguments", "index"])
                 )
-          })
+              )
+            )
+          else
+            message_params
+          end
+
+        message_params =
+          if is_binary(message.text) && String.trim(message.text) != "" do
+            Map.put(message_params, :content, message.text)
+          else
+            message_params
+          end
+
+        langchain_message = LangChain.Message.new_assistant!(message_params)
 
         if message.tool_results && !Enum.empty?(message.tool_results) do
           [
