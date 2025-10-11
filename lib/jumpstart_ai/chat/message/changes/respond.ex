@@ -138,15 +138,19 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
                   data.tool_results &&
                     Enum.map(
                       data.tool_results,
-                      &Map.take(&1, [
-                        :type,
-                        :tool_call_id,
-                        :name,
-                        :content,
-                        :display_text,
-                        :is_error,
-                        :options
-                      ])
+                      fn tool_result ->
+                        tool_result
+                        |> Map.take([
+                          :type,
+                          :tool_call_id,
+                          :name,
+                          :content,
+                          :display_text,
+                          :is_error,
+                          :options
+                        ])
+                        |> Map.update(:content, nil, &to_text/1)
+                      end
                     ),
                 text: text
               },

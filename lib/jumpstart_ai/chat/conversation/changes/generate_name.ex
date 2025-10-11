@@ -51,7 +51,31 @@ defmodule JumpstartAi.Chat.Conversation.Changes.GenerateName do
          %LangChain.Chains.LLMChain{
            last_message: %{content: content}
          }} ->
-          Ash.Changeset.force_change_attribute(changeset, :title, content)
+          title =
+            cond do
+              is_binary(content) ->
+                String.trim(content)
+
+              is_list(content) ->
+                content
+                |> Enum.reduce("", fn
+                  %LangChain.Message.ContentPart{type: :text, content: c}, acc when is_binary(c) ->
+                    acc <> c
+
+                  _, acc ->
+                    acc
+                end)
+                |> String.trim()
+
+              true ->
+                ""
+            end
+
+          if title != "" do
+            Ash.Changeset.force_change_attribute(changeset, :title, title)
+          else
+            changeset
+          end
 
         {:error, _, error} ->
           {:error, error}

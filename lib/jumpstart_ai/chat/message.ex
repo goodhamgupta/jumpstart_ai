@@ -187,13 +187,13 @@ defmodule JumpstartAi.Chat.Message do
     end
   end
 
-  identities do
-    identity :primary_key, [:id]
-  end
-
   calculations do
     calculate :needs_response, :boolean do
       calculation expr(source == :user and not exists(response))
     end
+  end
+
+  identities do
+    identity :primary_key, [:id]
   end
 end
