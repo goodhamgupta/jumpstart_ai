@@ -59,7 +59,8 @@ defmodule JumpstartAi.Chat.Conversation.Changes.GenerateName do
               is_list(content) ->
                 content
                 |> Enum.reduce("", fn
-                  %LangChain.Message.ContentPart{type: :text, content: c}, acc when is_binary(c) ->
+                  %LangChain.Message.ContentPart{type: :text, content: c}, acc
+                  when is_binary(c) ->
                     acc <> c
 
                   _, acc ->

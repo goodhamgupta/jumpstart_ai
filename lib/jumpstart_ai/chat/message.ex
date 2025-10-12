@@ -133,7 +133,9 @@ defmodule JumpstartAi.Chat.Message do
                   if ^arg(:complete) do
                     fragment("EXCLUDED.\"reasoning_content\"")
                   else
-                    fragment("COALESCE(m0.\"reasoning_content\", '') || COALESCE(EXCLUDED.\"reasoning_content\", '')")
+                    fragment(
+                      "COALESCE(m0.\"reasoning_content\", '') || COALESCE(EXCLUDED.\"reasoning_content\", '')"
+                    )
                   end
                 )}
              )
@@ -149,13 +151,25 @@ defmodule JumpstartAi.Chat.Message do
 
     publish :create, ["messages", :conversation_id] do
       transform fn %{data: message} ->
-        %{text: message.text, id: message.id, source: message.source, complete: message.complete, reasoning_content: message.reasoning_content}
+        %{
+          text: message.text,
+          id: message.id,
+          source: message.source,
+          complete: message.complete,
+          reasoning_content: message.reasoning_content
+        }
       end
     end
 
     publish :upsert_response, ["messages", :conversation_id] do
       transform fn %{data: message} ->
-        %{text: message.text, id: message.id, source: message.source, complete: message.complete, reasoning_content: message.reasoning_content}
+        %{
+          text: message.text,
+          id: message.id,
+          source: message.source,
+          complete: message.complete,
+          reasoning_content: message.reasoning_content
+        }
       end
     end
   end

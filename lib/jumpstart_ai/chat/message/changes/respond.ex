@@ -22,10 +22,15 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
   defp extract_thinking_content(nil), do: ""
 
   # Handle Anthropic thinking content
-  defp extract_thinking_content(%LangChain.Message.ContentPart{type: :thinking, content: c}) when is_binary(c), do: c
+  defp extract_thinking_content(%LangChain.Message.ContentPart{type: :thinking, content: c})
+       when is_binary(c),
+       do: c
 
   # Handle OpenAI reasoning summary (stored as :unsupported with type: "reasoning")
-  defp extract_thinking_content(%LangChain.Message.ContentPart{type: :unsupported, options: options}) do
+  defp extract_thinking_content(%LangChain.Message.ContentPart{
+         type: :unsupported,
+         options: options
+       }) do
     case options do
       %{type: "reasoning", summary: summary} when is_binary(summary) -> summary
       _ -> ""
@@ -38,7 +43,10 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
     parts
     |> Enum.filter(fn part ->
       match?(%LangChain.Message.ContentPart{type: :thinking}, part) ||
-        (match?(%LangChain.Message.ContentPart{type: :unsupported, options: %{type: "reasoning"}}, part))
+        match?(
+          %LangChain.Message.ContentPart{type: :unsupported, options: %{type: "reasoning"}},
+          part
+        )
     end)
     |> Enum.map(fn part ->
       case part do
@@ -145,7 +153,13 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
             end)
             |> Enum.filter(fn part ->
               match?(%LangChain.Message.ContentPart{type: :thinking}, part) ||
-                match?(%LangChain.Message.ContentPart{type: :unsupported, options: %{type: "reasoning"}}, part)
+                match?(
+                  %LangChain.Message.ContentPart{
+                    type: :unsupported,
+                    options: %{type: "reasoning"}
+                  },
+                  part
+                )
             end)
             |> Enum.map(fn part ->
               case part do
