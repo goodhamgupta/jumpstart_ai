@@ -40,13 +40,36 @@ defmodule JumpstartAiWeb.CoreComponents do
   end
 
   defp markdown_to_html(text) when is_binary(text) do
-    case Earmark.as_html(text) do
+    # First process mentions, then markdown
+    text_with_mentions = process_mentions(text)
+
+    case Earmark.as_html(text_with_mentions) do
       {:ok, html, _} -> html
       {:error, _html, _errors} -> text
     end
   end
 
   defp markdown_to_html(_), do: ""
+
+  defp process_mentions(text) do
+    # Replace @[Name](contact_id) with styled HTML
+    ~r/@\[([^\]]+)\]\(([^)]+)\)/
+    |> Regex.replace(text, fn _, name, _contact_id ->
+      # Extract initials from the name
+      initials =
+        name
+        |> String.split(" ")
+        |> Enum.map(&String.first/1)
+        |> Enum.take(2)
+        |> Enum.join("")
+        |> String.upcase()
+
+      ~s(<span class="inline-mention">
+        <span class="mention-avatar">#{initials}</span>
+        <span class="mention-name">#{name}</span>
+      </span>)
+    end)
+  end
 
   @doc """
   Renders a modal.

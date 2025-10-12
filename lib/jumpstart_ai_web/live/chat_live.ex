@@ -14,7 +14,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-x-mark" class="w-6 h-6" />
           </.link>
         </div>
-
+        
     <!-- Tabs -->
         <div class="flex items-center justify-between px-6 border-b border-gray-200">
           <div class="flex gap-8">
@@ -48,7 +48,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-plus" class="w-4 h-4" /> New thread
           </button>
         </div>
-
+        
     <!-- Context Display -->
         <div class="px-6 py-4 border-b border-gray-200">
           <div class="flex items-center justify-center gap-4 max-w-3xl mx-auto">
@@ -62,7 +62,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <div class="flex-1 h-px bg-gray-200"></div>
           </div>
         </div>
-
+        
     <!-- Messages Area -->
         <div class="flex-1 overflow-y-auto px-6 py-8">
           <div :if={@active_tab == :chat}>
@@ -88,7 +88,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   </div>
                 </div>
               </div>
-
+              
     <!-- Thinking Indicator -->
               <div :if={@thinking} class="max-w-3xl mx-auto mt-6">
                 <div class="flex items-center gap-2 text-gray-500">
@@ -135,7 +135,7 @@ defmodule JumpstartAiWeb.ChatLive do
             </div>
           </div>
         </div>
-
+        
     <!-- Input Area -->
         <div class="border-t border-gray-200 px-6 py-4">
           <div class="max-w-3xl mx-auto">
@@ -143,7 +143,6 @@ defmodule JumpstartAiWeb.ChatLive do
               :let={form}
               for={@message_form}
               phx-change="validate_message"
-              phx-debounce="blur"
               phx-submit="send_message"
               class="relative"
             >
@@ -155,10 +154,50 @@ defmodule JumpstartAiWeb.ChatLive do
                   phx-mounted={JS.focus()}
                   phx-keydown="keydown"
                   phx-key="Enter"
+                  phx-hook="MentionHook"
+                  phx-window-keydown="mention_keydown"
                   placeholder="Ask anything about your meetings..."
                   rows="3"
                   class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-400"
                 ></textarea>
+                
+    <!-- Mentions Dropdown -->
+                <div
+                  :if={@show_mentions && length(@mention_suggestions) > 0}
+                  class="absolute bottom-full left-0 mb-2 w-64 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg z-50"
+                  phx-click-away="hide_mentions"
+                >
+                  <div class="py-1">
+                    <button
+                      :for={contact <- @mention_suggestions}
+                      type="button"
+                      data-mention-item
+                      phx-click="select_mention"
+                      phx-value-contact_id={contact.id}
+                      onmousedown="event.preventDefault()"
+                      class="w-full px-4 py-2 text-left hover:bg-gray-100 focus:bg-gray-100 focus:outline-none transition-colors"
+                    >
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span class="text-sm font-medium text-gray-600">
+                            {String.first(contact.firstname || "")}{String.first(
+                              contact.lastname || ""
+                            )}
+                          </span>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="font-medium text-gray-900 truncate">
+                            {contact.firstname} {contact.lastname}
+                          </div>
+                          <div :if={contact.email} class="text-xs text-gray-500 truncate">
+                            {contact.email}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   disabled={!form[:text].value || String.trim(form[:text].value || "") == ""}
@@ -167,7 +206,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   <.icon name="hero-arrow-up" class="w-5 h-5 text-white" />
                 </button>
               </div>
-
+              
     <!-- Action Buttons Row -->
               <div class="flex items-center justify-between mt-3">
                 <div class="flex items-center gap-2">
@@ -254,6 +293,9 @@ defmodule JumpstartAiWeb.ChatLive do
       |> assign(:has_conversations, length(conversations) > 0)
       |> assign(:conversations_list, conversations)
       |> assign(:conversation, nil)
+      |> assign(:show_mentions, false)
+      |> assign(:mention_suggestions, [])
+      |> assign(:mention_query, "")
       |> stream_configure(:conversations, dom_id: &"conversations-#{&1.id}")
       |> stream(:conversations, conversations)
       |> stream_configure(:messages, dom_id: &"messages-#{&1.id}")
@@ -307,8 +349,17 @@ defmodule JumpstartAiWeb.ChatLive do
   end
 
   def handle_event("validate_message", %{"form" => params}, socket) do
-    {:noreply,
-     assign(socket, :message_form, AshPhoenix.Form.validate(socket.assigns.message_form, params))}
+    # Don't validate if we're in the middle of selecting a mention
+    if socket.assigns.show_mentions do
+      {:noreply, socket}
+    else
+      {:noreply,
+       assign(
+         socket,
+         :message_form,
+         AshPhoenix.Form.validate(socket.assigns.message_form, params)
+       )}
+    end
   end
 
   def handle_event("send_message", %{"form" => params}, socket) do
@@ -384,6 +435,92 @@ defmodule JumpstartAiWeb.ChatLive do
     {:noreply, socket}
   end
 
+  def handle_event("search_mentions", %{"query" => query}, socket) do
+    contacts =
+      if String.length(query) >= 1 do
+        case JumpstartAi.Accounts.Contact
+             |> Ash.Query.for_read(:search_for_mention, %{
+               query: query,
+               limit: 5,
+               user_id: socket.assigns.current_user.id
+             })
+             |> Ash.read() do
+          {:ok, results} -> results
+          {:error, _error} -> []
+        end
+      else
+        []
+      end
+
+    socket =
+      socket
+      |> assign(:mention_suggestions, contacts)
+      |> assign(:show_mentions, length(contacts) > 0)
+      |> assign(:mention_query, query)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("select_mention", %{"contact_id" => contact_id} = params, socket) do
+    contact = Enum.find(socket.assigns.mention_suggestions, &(&1.id == contact_id))
+
+    if contact do
+      # Format the mention as @[Name](contact_id)
+      full_name = "#{contact.firstname || ""} #{contact.lastname || ""}" |> String.trim()
+      mention_text = "@[#{full_name}](#{contact.id})"
+
+      # Pass the current form value to JavaScript
+      current_text = socket.assigns.message_form.source.changes[:text] || ""
+
+      socket =
+        socket
+        |> assign(:show_mentions, false)
+        |> assign(:mention_suggestions, [])
+        |> push_event("insert-mention", %{
+          text: mention_text,
+          query_length: String.length(socket.assigns.mention_query || "") + 1,
+          current_value: current_text
+        })
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("hide_mentions", _, socket) do
+    socket =
+      socket
+      |> assign(:show_mentions, false)
+      |> assign(:mention_suggestions, [])
+
+    {:noreply, socket}
+  end
+
+  def handle_event("mention_keydown", %{"key" => key}, socket)
+      when key in ["ArrowDown", "ArrowUp"] do
+    if socket.assigns.show_mentions do
+      socket = push_event(socket, "navigate-mentions", %{key: key})
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("mention_keydown", %{"key" => "Enter"}, socket) do
+    # Find the selected contact (the one with bg-gray-100 class)
+    # This would need client-side tracking of selected item
+    {:noreply, push_event(socket, "select-current-mention", %{})}
+  end
+
+  def handle_event("mention_keydown", %{"key" => "Escape"}, socket) do
+    {:noreply, handle_event("hide_mentions", %{}, socket) |> elem(1)}
+  end
+
+  def handle_event("mention_keydown", _, socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("keydown", %{"key" => "Enter", "value" => value} = params, socket) do
     # Check if Shift key is pressed
     if Map.get(params, "shiftKey", false) do
@@ -452,7 +589,9 @@ defmodule JumpstartAiWeb.ChatLive do
           {:noreply, socket}
 
         true ->
-          {:noreply, stream_insert(socket, :messages, message, at: -1) |> push_event("scroll-to-bottom", %{})}
+          {:noreply,
+           stream_insert(socket, :messages, message, at: -1)
+           |> push_event("scroll-to-bottom", %{})}
       end
     else
       {:noreply, socket}

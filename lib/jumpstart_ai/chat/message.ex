@@ -38,13 +38,14 @@ defmodule JumpstartAi.Chat.Message do
     end
 
     create :create do
-      accept [:text]
+      accept [:text, :mentions]
 
       argument :conversation_id, :uuid do
         public? false
       end
 
       change JumpstartAi.Chat.Message.Changes.CreateConversationIfNotProvided
+      change JumpstartAi.Chat.Message.Changes.ParseMentions
       change run_oban_trigger(:respond)
     end
 
@@ -201,6 +202,12 @@ defmodule JumpstartAi.Chat.Message do
     attribute :complete, :boolean do
       allow_nil? false
       default true
+    end
+
+    attribute :mentions, {:array, :map} do
+      allow_nil? true
+      default []
+      public? true
     end
   end
 

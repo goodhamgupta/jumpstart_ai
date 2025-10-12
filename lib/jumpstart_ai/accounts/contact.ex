@@ -307,6 +307,70 @@ defmodule JumpstartAi.Accounts.Contact do
       filter expr(email == ^arg(:email))
     end
 
+    read :search_for_mention do
+      argument :query, :string, allow_nil?: false
+
+      argument :limit, :integer do
+        allow_nil? true
+        default 5
+      end
+
+      argument :user_id, :uuid, allow_nil?: false
+
+      manual fn query, _, _ ->
+        search_query = query.arguments[:query]
+        user_id = query.arguments[:user_id]
+        limit = query.arguments[:limit] || 5
+
+        # Use raw SQL for case-insensitive search
+        sql = """
+        SELECT id, firstname, lastname, email, company
+        FROM contacts
+        WHERE user_id = $1
+          AND (
+            firstname ILIKE $2 OR
+            lastname ILIKE $2 OR
+            email ILIKE $2 OR
+            company ILIKE $2
+          )
+        ORDER BY firstname ASC, lastname ASC
+        LIMIT $3
+        """
+
+        search_pattern = "%#{search_query}%"
+
+        case JumpstartAi.Repo.query(sql, [
+               Ecto.UUID.dump!(user_id),
+               search_pattern,
+               limit
+             ]) do
+          {:ok, %{rows: rows}} ->
+            # Convert rows to proper Ash resource structs
+            contacts =
+              Enum.map(rows, fn [id_binary, firstname, lastname, email, company] ->
+                {:ok, id} = Ecto.UUID.load(id_binary)
+
+                # Create a proper struct with all required fields
+                struct(JumpstartAi.Accounts.Contact, %{
+                  id: id,
+                  firstname: firstname,
+                  lastname: lastname,
+                  email: email,
+                  company: company,
+                  __metadata__: %{},
+                  calculations: %{},
+                  aggregates: %{}
+                })
+              end)
+
+            {:ok, contacts}
+
+          {:error, error} ->
+            {:error, error}
+        end
+      end
+    end
+
     action :find_contact, {:array, :map} do
       description """
       Find contacts by searching name, email, or company. Uses pattern matching to find contacts that match the search query.
@@ -550,6 +614,10 @@ defmodule JumpstartAi.Accounts.Contact do
     end
 
     bypass action(:find_contact) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:search_for_mention) do
       authorize_if actor_present()
     end
 

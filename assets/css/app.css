@@ -154,3 +154,34 @@ a[href*="/auth/user/hubspot"] {
   background-repeat: no-repeat;
   background-size: 1.5em 1.5em;
 }
+
+/* Mention Styles - Matching UI Mock */
+.inline-mention {
+  @apply inline-flex items-center gap-1 align-middle;
+}
+
+.mention-avatar {
+  @apply inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-700 text-white text-xs font-medium;
+}
+
+.mention-name {
+  @apply text-gray-900 font-medium;
+}
+
+/* Dark theme mentions in user messages */
+.bg-gray-900 .mention-avatar {
+  @apply bg-gray-300 text-gray-800;
+}
+
+.bg-gray-900 .mention-name {
+  @apply text-white;
+}
+
+/* Agent message mentions */
+.bg-gray-100 .mention-avatar {
+  @apply bg-gray-700 text-white;
+}
+
+.bg-gray-100 .mention-name {
+  @apply text-gray-900;
+}
