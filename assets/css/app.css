@@ -94,3 +94,42 @@
 a[href*="/auth/user/hubspot"] {
   display: none !important;
 }
+
+/* Meeting Card Styles */
+.meeting-card {
+  @apply bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow;
+}
+
+.meeting-date-header {
+  @apply text-sm font-medium text-gray-500 mb-2;
+}
+
+.meeting-time {
+  @apply text-sm text-gray-600 mb-1;
+}
+
+.meeting-title {
+  @apply text-lg font-semibold text-gray-900 mb-2;
+}
+
+.meeting-avatars {
+  @apply flex -space-x-2;
+}
+
+.meeting-avatar {
+  @apply w-8 h-8 rounded-full bg-gray-300 border-2 border-white;
+}
+
+/* Suggestion Card Styles */
+.suggestion-card {
+  @apply bg-gray-50 rounded-xl p-4 inline-block max-w-2xl;
+}
+
+/* Context Selector Dropdown */
+.context-select {
+  @apply pl-4 pr-10 py-2 border border-gray-300 rounded-full text-sm appearance-none bg-white hover:bg-gray-50 cursor-pointer;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+}

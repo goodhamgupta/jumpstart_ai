@@ -4,161 +4,194 @@ defmodule JumpstartAiWeb.ChatLive do
 
   def render(assigns) do
     ~H"""
-    <div class="drawer md:drawer-open bg-base-200 min-h-screen h-screen w-screen fixed inset-0">
-      <input id="ash-ai-drawer" type="checkbox" class="drawer-toggle" />
-      <div class="drawer-content flex flex-col min-h-screen">
-        <div class="navbar bg-base-300 w-full">
-          <div class="flex-none md:hidden">
-            <label for="ash-ai-drawer" aria-label="open sidebar" class="btn btn-square btn-ghost">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                class="inline-block h-6 w-6 stroke-current"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 12h16M4 18h16"
-                >
-                </path>
-              </svg>
-            </label>
+    <div class="flex h-screen w-full bg-white overflow-hidden">
+      <!-- Main Content Area -->
+      <div class="flex-1 flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h1 class="text-2xl font-semibold text-gray-900">Ask Anything</h1>
+          <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
+            <.icon name="hero-x-mark" class="w-6 h-6" />
+          </.link>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex items-center justify-between px-6 border-b border-gray-200">
+          <div class="flex gap-8">
+            <button
+              phx-click="switch_tab"
+              phx-value-tab="chat"
+              class={[
+                "py-3 text-base font-medium border-b-2 transition-colors",
+                @active_tab == :chat && "border-black text-black" || "border-transparent text-gray-500"
+              ]}
+            >
+              Chat
+            </button>
+            <button
+              phx-click="switch_tab"
+              phx-value-tab="history"
+              class={[
+                "py-3 text-base font-medium border-b-2 transition-colors",
+                @active_tab == :history && "border-black text-black" || "border-transparent text-gray-500"
+              ]}
+            >
+              History
+            </button>
           </div>
-          <img src={~p"/images/logo.svg"} alt="Logo" class="h-12" height="48" />
-          <div class="mx-2 flex-1 px-2">
-            <p :if={@conversation} class="text-lg font-medium">
-              {build_conversation_title_string(@conversation.title)}
-            </p>
-            <p class="text-sm">JumpstartAI</p>
+          <button phx-click="new_thread" class="flex items-center gap-2 text-sm font-medium text-gray-900 hover:text-gray-700">
+            <.icon name="hero-plus" class="w-4 h-4" />
+            New thread
+          </button>
+        </div>
+
+        <!-- Context Display -->
+        <div class="px-6 py-4 border-b border-gray-200">
+          <div class="flex items-center justify-center gap-4 max-w-3xl mx-auto">
+            <div class="flex-1 h-px bg-gray-200"></div>
+            <div class="text-center">
+              <p class="text-sm text-gray-600">{@context_description}</p>
+              <p class="text-xs text-gray-400 mt-1">
+                <%= Calendar.strftime(DateTime.utc_now(), "%I:%M%P - %B %d, %Y") %>
+              </p>
+            </div>
+            <div class="flex-1 h-px bg-gray-200"></div>
           </div>
         </div>
-        <div class="flex-1 flex flex-col overflow-hidden bg-base-200">
-          <div
-            id="message-container"
-            phx-update="stream"
-            class="flex-1 overflow-y-auto px-4 py-2 flex flex-col-reverse"
-          >
-            <%= for {id, message} <- @streams.messages do %>
-              <div
-                id={id}
-                class={[
-                  "chat",
-                  message.source == :user && "chat-end",
-                  message.source == :agent && "chat-start"
-                ]}
-              >
-                <div :if={message.source == :agent} class="chat-image avatar">
-                  <div class="w-10 rounded-full bg-base-300 p-1">
-                    <img
-                      src="https://github.com/ash-project/ash_ai/blob/main/logos/ash_ai.png?raw=true"
-                      alt="Logo"
-                    />
-                  </div>
-                </div>
-                <div :if={message.source == :user} class="chat-image avatar avatar-placeholder">
-                  <div class="w-10 rounded-full bg-base-300">
-                    <.icon name="hero-user-solid" class="block" />
-                  </div>
-                </div>
-                <div class="chat-bubble text-lg leading-relaxed">
-                  <div :if={message.source == :agent && message.reasoning_content && message.reasoning_content != ""} class="mb-4 p-3 bg-base-100 rounded-lg border border-base-content/10">
-                    <details class="collapse collapse-arrow bg-base-200 rounded-box">
-                      <summary class="collapse-title text-sm font-medium text-base-content/70">
-                        View reasoning process
-                      </summary>
-                      <div class="collapse-content">
-                        <div class="text-sm text-base-content/80 whitespace-pre-wrap mt-2">
-                          <.markdown text={message.reasoning_content} />
-                        </div>
+
+        <!-- Messages Area -->
+        <div class="flex-1 overflow-y-auto px-6 py-8">
+          <%= if @active_tab == :chat do %>
+            <!-- Chat Tab Content -->
+            <%= if @conversation do %>
+              <div id="message-container" phx-update="stream" class="space-y-6 max-w-3xl mx-auto">
+                <div :for={{id, message} <- @streams.messages} id={id}>
+                  <%= if message.source == :agent do %>
+                    <!-- Agent Message -->
+                    <div class="space-y-4">
+                      <div class="text-[15px] text-gray-900 leading-[1.6]">
+                        <.markdown text={message.text} />
                       </div>
-                    </details>
-                  </div>
-                  <.markdown text={message.text} />
+                    </div>
+                  <% else %>
+                    <!-- User Message (Suggestion Card Style) -->
+                    <div class="bg-gray-100 rounded-2xl px-5 py-4 inline-block max-w-2xl">
+                      <div class="text-[15px] text-gray-900 leading-[1.5]">
+                        <.markdown text={message.text} />
+                      </div>
+                    </div>
+                  <% end %>
                 </div>
+              </div>
+
+              <!-- Thinking Indicator -->
+              <div :if={@thinking} class="max-w-3xl mx-auto mt-6">
+                <div class="flex items-center gap-2 text-gray-500">
+                  <span class="loading loading-dots loading-sm"></span>
+                  <span class="text-sm">Thinking...</span>
+                </div>
+              </div>
+            <% else %>
+              <div class="max-w-3xl mx-auto text-center py-12">
+                <p class="text-gray-500 text-lg">Start a new conversation</p>
+                <p class="text-gray-400 text-sm mt-2">Type your question below to begin</p>
               </div>
             <% end %>
-          </div>
-          <div :if={@thinking} class="px-4 py-2 flex items-center gap-2 text-base-content/70">
-            <div class="chat chat-start">
-              <div class="chat-image avatar">
-                <div class="w-10 rounded-full bg-base-300 p-1">
-                  <img
-                    src="https://github.com/ash-project/ash_ai/blob/main/logos/ash_ai.png?raw=true"
-                    alt="Logo"
-                  />
+          <% else %>
+            <!-- History Tab Content -->
+            <div class="max-w-5xl mx-auto">
+              <%= if @has_conversations do %>
+                <div id="conversation-list" phx-update="stream" class="space-y-3">
+                  <div :for={{id, conversation} <- @streams.conversations} id={id}>
+                    <button
+                      phx-click="select_conversation"
+                      phx-value-id={conversation.id}
+                      class="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-50 border border-gray-200 transition-colors"
+                    >
+                      <div class="font-medium text-gray-900">
+                        <%= build_conversation_title_string(conversation.title) %>
+                      </div>
+                      <div class="text-sm text-gray-500 mt-1">
+                        <%= Calendar.strftime(conversation.inserted_at, "%B %d, %Y at %I:%M %p") %>
+                      </div>
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div class="chat-bubble bg-base-300 text-base-content flex items-center gap-2">
-                <span class="loading loading-dots loading-sm"></span>
-                <span class="text-sm">Thinking...</span>
-              </div>
+              <% else %>
+                <div class="text-gray-500 text-center py-8">
+                  <p class="text-lg">Conversation history will appear here</p>
+                  <p class="text-sm mt-2">Your past conversations and search history will be displayed in this section</p>
+                </div>
+              <% end %>
             </div>
-          </div>
+          <% end %>
         </div>
-        <div class="p-4 border-t border-base-300 bg-base-200 flex-shrink-0">
-          <.form
-            :let={form}
-            for={@message_form}
-            phx-change="validate_message"
-            phx-debounce="blur"
-            phx-submit="send_message"
-            class="flex items-center gap-4"
-          >
-            <div class="flex-1">
-              <input
+
+        <!-- Input Area -->
+        <div class="border-t border-gray-200 px-6 py-4">
+          <div class="max-w-3xl mx-auto">
+            <.form
+              :let={form}
+              for={@message_form}
+              phx-change="validate_message"
+              phx-debounce="blur"
+              phx-submit="send_message"
+              class="relative"
+            >
+              <textarea
                 name={form[:text].name}
                 value={form[:text].value}
-                type="text"
                 phx-mounted={JS.focus()}
-                placeholder="Type your message..."
-                class="input input-primary w-full mb-0 text-lg"
-                autocomplete="off"
-              />
-            </div>
-            <button type="submit" class="btn btn-primary rounded-full text-lg">
-              <.icon name="hero-paper-airplane" /> Send
-            </button>
-          </.form>
-        </div>
-      </div>
+                placeholder="Ask anything about your meetings..."
+                rows="3"
+                class="w-full px-4 py-3 pr-32 border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              ></textarea>
 
-      <div class="drawer-side border-r border-base-content/20 bg-base-300 w-72 h-full">
-        <div class="py-4 px-6">
-          <.header class="text-xl mb-4 font-semibold">
-            Conversations
-          </.header>
-          <div class="mb-4">
-            <.link navigate={~p"/chat"} class="btn btn-primary btn-lg mb-2">
-              <div class="rounded-full bg-primary-content text-primary w-6 h-6 flex items-center justify-center">
-                <.icon name="hero-plus" />
+              <!-- Action Buttons Row -->
+              <div class="flex items-center justify-between mt-3">
+                <div class="flex items-center gap-2">
+                  <!-- Add Button -->
+                  <button type="button" class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-50">
+                    <.icon name="hero-plus" class="w-5 h-5 text-gray-600" />
+                  </button>
+
+                  <!-- Context Selector -->
+                  <div class="relative">
+                    <select
+                      phx-change="change_context"
+                      name="context"
+                      class="pl-4 pr-10 py-2 border border-gray-300 rounded-full text-sm appearance-none bg-white hover:bg-gray-50 cursor-pointer"
+                    >
+                      <option value="all_meetings" selected={@context_type == "all_meetings"}>
+                        All meetings
+                      </option>
+                      <option value="all_contacts" selected={@context_type == "all_contacts"}>
+                        All contacts
+                      </option>
+                      <option value="all_emails" selected={@context_type == "all_emails"}>
+                        All emails
+                      </option>
+                    </select>
+                  </div>
+
+                  <!-- Calendar Button -->
+                  <button type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200">
+                    <.icon name="hero-calendar" class="w-5 h-5 text-red-600" />
+                  </button>
+
+                  <!-- Location Button -->
+                  <button type="button" class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-100 hover:bg-blue-200">
+                    <.icon name="hero-map-pin" class="w-5 h-5 text-blue-600" />
+                  </button>
+                </div>
+
+                <!-- Microphone Button -->
+                <button type="button" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100">
+                  <.icon name="hero-microphone" class="w-5 h-5 text-gray-600" />
+                </button>
               </div>
-              <span>New Chat</span>
-            </.link>
+            </.form>
           </div>
-          <ul class="flex flex-col-reverse" phx-update="stream" id="conversations-list">
-            <%= for {id, conversation} <- @streams.conversations do %>
-              <li id={id}>
-                <.link
-                  href={~p"/chat/#{conversation.id}"}
-                  phx-click="select_conversation"
-                  phx-value-id={conversation.id}
-                  class={"block py-2 px-3 transition border-l-4 pl-2 mb-2 text-lg #{if @conversation && @conversation.id == conversation.id, do: "border-primary font-medium", else: "border-transparent"}"}
-                >
-                  {build_conversation_title_string(conversation.title)}
-                </.link>
-              </li>
-            <% end %>
-          </ul>
-        </div>
-        <div class="absolute bottom-4 left-4 flex flex-col gap-2">
-          <.link navigate="/settings" class="btn btn-ghost btn-sm">
-            <.icon name="hero-cog-6-tooth" /> Settings
-          </.link>
-          <a href="/sign-out" class="btn btn-ghost btn-sm">
-            <.icon name="hero-arrow-right-on-rectangle" /> Sign Out
-          </a>
         </div>
       </div>
     </div>
@@ -176,15 +209,29 @@ defmodule JumpstartAiWeb.ChatLive do
   def mount(_params, _session, socket) do
     JumpstartAiWeb.Endpoint.subscribe("chat:conversations:#{socket.assigns.current_user.id}")
 
+    conversations = JumpstartAi.Chat.my_conversations!(actor: socket.assigns.current_user)
+    require Logger
+    Logger.info("Loaded #{length(conversations)} conversations in mount")
+
+    # Log the first conversation to debug
+    if length(conversations) > 0 do
+      first = hd(conversations)
+      Logger.info("First conversation: id=#{inspect(first.id)}, title=#{inspect(first.title)}, inserted_at=#{inspect(first.inserted_at)}")
+    end
+
     socket =
       socket
       |> assign(:page_title, "Chat")
+      |> assign(:skip_layout, true)
       |> assign(:thinking, false)
-      |> stream(
-        :conversations,
-        JumpstartAi.Chat.my_conversations!(actor: socket.assigns.current_user)
-      )
-      |> assign(:messages, [])
+      |> assign(:active_tab, :chat)
+      |> assign(:context_type, "all_meetings")
+      |> assign(:context_description, "Context set to all meetings")
+      |> assign(:has_conversations, length(conversations) > 0)
+      |> assign(:conversation, nil)
+      |> stream(:conversations, conversations)
+      |> stream(:messages, [])
+      |> assign_message_form()
 
     {:ok, socket}
   end
@@ -249,7 +296,56 @@ defmodule JumpstartAiWeb.ChatLive do
   end
 
   def handle_event("select_conversation", %{"id" => conversation_id}, socket) do
-    {:noreply, push_navigate(socket, to: ~p"/chat/#{conversation_id}")}
+    {:noreply,
+     socket
+     |> assign(:active_tab, :chat)
+     |> push_navigate(to: ~p"/chat/#{conversation_id}")}
+  end
+
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    require Logger
+
+    # Debug the streams and assigns
+    Logger.info("Switching to tab: #{tab}")
+    Logger.info("has_conversations: #{socket.assigns.has_conversations}")
+    Logger.info("assigns keys: #{inspect(Map.keys(socket.assigns))}")
+
+    if Map.has_key?(socket.assigns, :streams) do
+      Logger.info("streams keys: #{inspect(Map.keys(socket.assigns.streams))}")
+      Logger.info("streams.conversations: #{inspect(socket.assigns.streams.conversations)}")
+    end
+
+    tab_atom = String.to_existing_atom(tab)
+
+    # If switching to chat tab and we have a conversation, ensure we're on the right URL
+    socket = if tab_atom == :chat && socket.assigns.conversation do
+      push_navigate(socket, to: ~p"/chat/#{socket.assigns.conversation.id}")
+    else
+      socket
+    end
+
+    {:noreply, assign(socket, :active_tab, tab_atom)}
+  end
+
+  def handle_event("new_thread", _, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/chat")}
+  end
+
+  def handle_event("change_context", %{"context" => context}, socket) do
+    description =
+      case context do
+        "all_meetings" -> "Context set to all meetings"
+        "all_contacts" -> "Context set to all contacts"
+        "all_emails" -> "Context set to all emails"
+        _ -> "Context set to all meetings"
+      end
+
+    socket =
+      socket
+      |> assign(:context_type, context)
+      |> assign(:context_description, description)
+
+    {:noreply, socket}
   end
 
   def handle_info(
@@ -263,22 +359,28 @@ defmodule JumpstartAiWeb.ChatLive do
       cond do
         source == :user ->
           # User message received - show thinking indicator
-          socket = socket
-          |> stream_insert(:messages, message, at: 0)
-          |> assign(:thinking, true)
+          socket =
+            socket
+            |> stream_insert(:messages, message, at: 0)
+            |> assign(:thinking, true)
+
           {:noreply, socket}
 
         source == :agent && complete == false ->
           # Agent started responding - hide thinking indicator
-          socket = socket
-          |> stream_insert(:messages, message, at: 0)
-          |> assign(:thinking, false)
+          socket =
+            socket
+            |> stream_insert(:messages, message, at: 0)
+            |> assign(:thinking, false)
+
           {:noreply, socket}
 
         source == :agent && complete == true ->
-          socket = socket
-          |> stream_insert(:messages, message, at: 0)
-          |> assign(:thinking, false)
+          socket =
+            socket
+            |> stream_insert(:messages, message, at: 0)
+            |> assign(:thinking, false)
+
           {:noreply, socket}
 
         true ->
@@ -303,7 +405,7 @@ defmodule JumpstartAiWeb.ChatLive do
         socket
       end
 
-    {:noreply, stream_insert(socket, :conversations, conversation)}
+    {:noreply, socket |> stream_insert(:conversations, conversation) |> assign(:has_conversations, true)}
   end
 
   defp assign_message_form(socket) do
