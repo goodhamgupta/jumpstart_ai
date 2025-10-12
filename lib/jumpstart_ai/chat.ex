@@ -12,7 +12,7 @@ defmodule JumpstartAi.Chat do
       define :message_history,
         action: :for_conversation,
         args: [:conversation_id],
-        default_options: [query: [sort: [inserted_at: :desc]]]
+        default_options: [query: [sort: [inserted_at: :asc]]]
 
       define :create_message, action: :create
     end

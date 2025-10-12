@@ -14,7 +14,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-x-mark" class="w-6 h-6" />
           </.link>
         </div>
-        
+
     <!-- Tabs -->
         <div class="flex items-center justify-between px-6 border-b border-gray-200">
           <div class="flex gap-8">
@@ -48,7 +48,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-plus" class="w-4 h-4" /> New thread
           </button>
         </div>
-        
+
     <!-- Context Display -->
         <div class="px-6 py-4 border-b border-gray-200">
           <div class="flex items-center justify-center gap-4 max-w-3xl mx-auto">
@@ -62,7 +62,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <div class="flex-1 h-px bg-gray-200"></div>
           </div>
         </div>
-        
+
     <!-- Messages Area -->
         <div class="flex-1 overflow-y-auto px-6 py-8">
           <div :if={@active_tab == :chat}>
@@ -70,24 +70,25 @@ defmodule JumpstartAiWeb.ChatLive do
             <div :if={@conversation}>
               <div id="message-container" phx-update="stream" class="space-y-6 max-w-3xl mx-auto">
                 <div :for={{id, message} <- @streams.messages} id={id}>
-                  <div :if={message.source == :agent} class="space-y-4">
-                    <!-- Agent Message -->
-                    <div class="text-[15px] text-gray-900 leading-[1.6]">
-                      <.markdown text={message.text} />
+                  <!-- User Message -->
+                  <div :if={message.source != :agent} class="flex justify-end">
+                    <div class="bg-gray-900 text-white rounded-2xl px-5 py-4 max-w-[70%]">
+                      <div class="text-[15px] leading-[1.5]">
+                        <.markdown text={message.text} />
+                      </div>
                     </div>
                   </div>
-                  <div
-                    :if={message.source != :agent}
-                    class="bg-gray-100 rounded-2xl px-5 py-4 inline-block max-w-2xl"
-                  >
-                    <!-- User Message (Suggestion Card Style) -->
-                    <div class="text-[15px] text-gray-900 leading-[1.5]">
-                      <.markdown text={message.text} />
+                  <!-- Agent Message -->
+                  <div :if={message.source == :agent} class="flex justify-start">
+                    <div class="bg-gray-100 rounded-2xl px-5 py-4 max-w-[70%]">
+                      <div class="text-[15px] text-gray-900 leading-[1.6]">
+                        <.markdown text={message.text} />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-              
+
     <!-- Thinking Indicator -->
               <div :if={@thinking} class="max-w-3xl mx-auto mt-6">
                 <div class="flex items-center gap-2 text-gray-500">
@@ -134,7 +135,7 @@ defmodule JumpstartAiWeb.ChatLive do
             </div>
           </div>
         </div>
-        
+
     <!-- Input Area -->
         <div class="border-t border-gray-200 px-6 py-4">
           <div class="max-w-3xl mx-auto">
@@ -146,27 +147,36 @@ defmodule JumpstartAiWeb.ChatLive do
               phx-submit="send_message"
               class="relative"
             >
-              <textarea
-                name={form[:text].name}
-                value={form[:text].value}
-                phx-mounted={JS.focus()}
-                placeholder="Ask anything about your meetings..."
-                rows="3"
-                class="w-full px-4 py-3 pr-32 border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              ></textarea>
-              
+              <div class="relative">
+                <textarea
+                  name={form[:text].name}
+                  value={form[:text].value}
+                  phx-mounted={JS.focus()}
+                  phx-keydown="keydown"
+                  phx-key="Enter"
+                  placeholder="Ask anything about your meetings..."
+                  rows="3"
+                  class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-400"
+                ></textarea>
+                <button
+                  type="submit"
+                  disabled={!form[:text].value || String.trim(form[:text].value || "") == ""}
+                  class="absolute bottom-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg bg-black hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  <.icon name="hero-arrow-up" class="w-5 h-5 text-white" />
+                </button>
+              </div>
+
     <!-- Action Buttons Row -->
               <div class="flex items-center justify-between mt-3">
                 <div class="flex items-center gap-2">
-                  <!-- Add Button -->
                   <button
                     type="button"
                     class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-50"
                   >
                     <.icon name="hero-plus" class="w-5 h-5 text-gray-600" />
                   </button>
-                  
-    <!-- Context Selector -->
+
                   <div class="relative">
                     <select
                       phx-change="change_context"
@@ -184,16 +194,14 @@ defmodule JumpstartAiWeb.ChatLive do
                       </option>
                     </select>
                   </div>
-                  
-    <!-- Calendar Button -->
+
                   <button
                     type="button"
                     class="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200"
                   >
                     <.icon name="hero-calendar" class="w-5 h-5 text-red-600" />
                   </button>
-                  
-    <!-- Location Button -->
+
                   <button
                     type="button"
                     class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-100 hover:bg-blue-200"
@@ -201,8 +209,7 @@ defmodule JumpstartAiWeb.ChatLive do
                     <.icon name="hero-map-pin" class="w-5 h-5 text-blue-600" />
                   </button>
                 </div>
-                
-    <!-- Microphone Button -->
+
                 <button
                   type="button"
                   class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100"
@@ -309,7 +316,7 @@ defmodule JumpstartAiWeb.ChatLive do
         if socket.assigns.conversation do
           socket
           |> assign_message_form()
-          |> stream_insert(:messages, message, at: 0)
+          |> stream_insert(:messages, message, at: -1)
           |> then(&{:noreply, &1})
         else
           {:noreply,
@@ -375,6 +382,22 @@ defmodule JumpstartAiWeb.ChatLive do
     {:noreply, socket}
   end
 
+  def handle_event("keydown", %{"key" => "Enter", "value" => value} = params, socket) do
+    # Check if Shift key is pressed
+    if Map.get(params, "shiftKey", false) do
+      # Shift+Enter: do nothing, let default behavior add new line
+      {:noreply, socket}
+    else
+      # Enter only: submit the form if there's text
+      if String.trim(value || "") != "" do
+        # Submit the form programmatically
+        handle_event("send_message", %{"form" => %{"text" => value}}, socket)
+      else
+        {:noreply, socket}
+      end
+    end
+  end
+
   def handle_info(
         %Phoenix.Socket.Broadcast{
           topic: "chat:messages:" <> conversation_id,
@@ -388,7 +411,7 @@ defmodule JumpstartAiWeb.ChatLive do
           # User message received - show thinking indicator
           socket =
             socket
-            |> stream_insert(:messages, message, at: 0)
+            |> stream_insert(:messages, message, at: -1)
             |> assign(:thinking, true)
 
           {:noreply, socket}
@@ -397,7 +420,7 @@ defmodule JumpstartAiWeb.ChatLive do
           # Agent started responding - hide thinking indicator
           socket =
             socket
-            |> stream_insert(:messages, message, at: 0)
+            |> stream_insert(:messages, message, at: -1)
             |> assign(:thinking, false)
 
           {:noreply, socket}
@@ -405,7 +428,7 @@ defmodule JumpstartAiWeb.ChatLive do
         source == :agent && complete == true ->
           socket =
             socket
-            |> stream_insert(:messages, message, at: 0)
+            |> stream_insert(:messages, message, at: -1)
             |> assign(:thinking, false)
 
           {:noreply, socket}
