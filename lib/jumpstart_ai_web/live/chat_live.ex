@@ -149,6 +149,7 @@ defmodule JumpstartAiWeb.ChatLive do
             >
               <div class="relative">
                 <textarea
+                  id="message-input"
                   name={form[:text].name}
                   value={form[:text].value}
                   phx-mounted={JS.focus()}
@@ -181,7 +182,7 @@ defmodule JumpstartAiWeb.ChatLive do
                     <select
                       phx-change="change_context"
                       name="context"
-                      class="pl-4 pr-10 py-2 border border-gray-300 rounded-full text-sm appearance-none bg-white hover:bg-gray-50 cursor-pointer"
+                      class="pl-4 pr-10 py-2 border border-gray-300 rounded-full text-sm appearance-none bg-white hover:bg-gray-50 cursor-pointer text-black"
                     >
                       <option value="all_meetings" selected={@context_type == "all_meetings"}>
                         All meetings
@@ -212,7 +213,7 @@ defmodule JumpstartAiWeb.ChatLive do
 
                 <button
                   type="button"
-                  class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100"
+                  class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-black"
                 >
                   <.icon name="hero-microphone" class="w-5 h-5 text-gray-600" />
                 </button>
@@ -317,6 +318,7 @@ defmodule JumpstartAiWeb.ChatLive do
           socket
           |> assign_message_form()
           |> stream_insert(:messages, message, at: -1)
+          |> push_event("scroll-to-bottom", %{})
           |> then(&{:noreply, &1})
         else
           {:noreply,
@@ -390,8 +392,24 @@ defmodule JumpstartAiWeb.ChatLive do
     else
       # Enter only: submit the form if there's text
       if String.trim(value || "") != "" do
-        # Submit the form programmatically
-        handle_event("send_message", %{"form" => %{"text" => value}}, socket)
+        # Submit the form and clear the input
+        case AshPhoenix.Form.submit(socket.assigns.message_form, params: %{"text" => value}) do
+          {:ok, message} ->
+            socket = assign_message_form(socket)
+
+            if socket.assigns.conversation do
+              {:noreply,
+               socket
+               |> stream_insert(:messages, message, at: -1)
+               |> push_event("clear-textarea", %{})
+               |> push_event("scroll-to-bottom", %{})}
+            else
+              {:noreply, push_navigate(socket, to: ~p"/chat/#{message.conversation_id}")}
+            end
+
+          {:error, form} ->
+            {:noreply, assign(socket, :message_form, form)}
+        end
       else
         {:noreply, socket}
       end
@@ -434,7 +452,7 @@ defmodule JumpstartAiWeb.ChatLive do
           {:noreply, socket}
 
         true ->
-          {:noreply, stream_insert(socket, :messages, message, at: 0)}
+          {:noreply, stream_insert(socket, :messages, message, at: -1) |> push_event("scroll-to-bottom", %{})}
       end
     else
       {:noreply, socket}

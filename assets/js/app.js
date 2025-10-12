@@ -36,6 +36,28 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 
+// Handle clear-textarea events
+window.addEventListener("phx:clear-textarea", e => {
+  const textarea = document.getElementById("message-input")
+  if (textarea) {
+    textarea.value = ""
+  }
+})
+
+// Handle scroll-to-bottom events
+window.addEventListener("phx:scroll-to-bottom", e => {
+  // Small delay to ensure DOM is updated
+  setTimeout(() => {
+    const messageContainer = document.getElementById("message-container")
+    if (messageContainer) {
+      const scrollableParent = messageContainer.closest('.overflow-y-auto')
+      if (scrollableParent) {
+        scrollableParent.scrollTop = scrollableParent.scrollHeight
+      }
+    }
+  }, 50)
+})
+
 // expose liveSocket on window for web console debug logs and latency simulation:
 // >> liveSocket.enableDebug()
 // >> liveSocket.enableLatencySim(1000)  // enabled for duration of browser session
