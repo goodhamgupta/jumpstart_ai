@@ -23,14 +23,15 @@ config :jumpstart_ai, Oban,
     contact_sync: [limit: 10],
     calendar_sync: [limit: 10],
     email_to_markdown: [limit: 10],
-    embeddings: [limit: 5]
+    embeddings: [limit: 5],
+    task_continuation: [limit: 5],
+    proactive_actions: [limit: 5]
   ],
   repo: JumpstartAi.Repo,
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
-       # Run periodic sync scheduler every 5 minutes
-       {"*/5 * * * *", JumpstartAi.Workers.PeriodicSyncScheduler}
+       {"*/2 * * * *", JumpstartAi.Workers.PeriodicSyncScheduler}
      ]}
   ]
 

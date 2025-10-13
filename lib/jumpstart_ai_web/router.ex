@@ -53,6 +53,7 @@ defmodule JumpstartAiWeb.Router do
       live "/chat", ChatLive
       live "/chat/:conversation_id", ChatLive
       live "/settings", SettingsLive
+      live "/data", DataViewerLive
       # in each liveview, add one of the following at the top of the module:
       #
       # If an authenticated user must be present:

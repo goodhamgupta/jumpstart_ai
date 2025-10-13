@@ -11,6 +11,9 @@ defmodule JumpstartAiWeb.ChatLive do
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h1 class="text-2xl font-semibold text-gray-900">Ask Anything</h1>
           <div class="flex items-center gap-3">
+            <.link navigate={~p"/data"} class="text-gray-400 hover:text-gray-600" aria-label="View Database">
+              <.icon name="hero-circle-stack" class="w-6 h-6" />
+            </.link>
             <.link navigate={~p"/settings"} class="text-gray-400 hover:text-gray-600" aria-label="Settings">
               <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
             </.link>
@@ -361,6 +364,7 @@ defmodule JumpstartAiWeb.ChatLive do
           socket
           |> assign_message_form()
           |> stream_insert(:messages, message, at: -1)
+          |> push_event("clear-form", %{})
           |> push_event("scroll-to-bottom", %{})
           |> then(&{:noreply, &1})
         else
@@ -529,13 +533,14 @@ defmodule JumpstartAiWeb.ChatLive do
         # Submit the form and clear the input
         case AshPhoenix.Form.submit(socket.assigns.message_form, params: %{"text" => value}) do
           {:ok, message} ->
+            # Reset the form first to ensure clean state
             socket = assign_message_form(socket)
 
             if socket.assigns.conversation do
               {:noreply,
                socket
                |> stream_insert(:messages, message, at: -1)
-               |> push_event("clear-textarea", %{})
+               |> push_event("clear-form", %{})
                |> push_event("scroll-to-bottom", %{})}
             else
               {:noreply, push_navigate(socket, to: ~p"/chat/#{message.conversation_id}")}

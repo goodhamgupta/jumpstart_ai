@@ -32,6 +32,9 @@ let MentionHook = {
     this.lastCursorPos = 0
     this.lastAtIndex = -1
     
+    // Store hook reference on element for external access
+    this.el._phxHook = this
+    
     this.el.addEventListener("input", e => {
       const value = e.target.value
       const cursorPos = e.target.selectionStart
@@ -122,6 +125,13 @@ let MentionHook = {
         }, 10)
       }
     })
+  },
+  
+  destroyed() {
+    // Clean up reference
+    if (this.el._phxHook === this) {
+      delete this.el._phxHook
+    }
   }
 }
 
@@ -139,11 +149,20 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 
-// Handle clear-textarea events
-window.addEventListener("phx:clear-textarea", e => {
+// Handle clear-form events - both clear textarea and reset MentionHook state
+window.addEventListener("phx:clear-form", e => {
   const textarea = document.getElementById("message-input")
   if (textarea) {
     textarea.value = ""
+    // Reset MentionHook state if it exists
+    const hook = textarea.phxHook || textarea._phxHook
+    if (hook) {
+      hook.lastValue = ""
+      hook.lastCursorPos = 0
+      hook.lastAtIndex = -1
+    }
+    // Trigger input event to sync with LiveView
+    textarea.dispatchEvent(new Event("input", {bubbles: true}))
   }
 })
 

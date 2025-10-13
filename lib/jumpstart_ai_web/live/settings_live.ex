@@ -10,6 +10,7 @@ defmodule JumpstartAiWeb.SettingsLive do
     {:ok,
      socket
      |> assign(:page_title, "Settings")
+     |> assign(:skip_layout, true)
      |> assign(:hubspot_connected?, is_hubspot_connected?(user))}
   end
 
@@ -72,38 +73,44 @@ defmodule JumpstartAiWeb.SettingsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="h-screen bg-gray-50 flex flex-col">
-      <div class="flex-1 max-w-4xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between mb-4">
-          <div class="min-w-0 flex-1">
-            <h2 class="text-2xl font-bold leading-7 text-gray-900">
-              Account Settings
-            </h2>
-            <p class="mt-1 text-sm text-gray-500">
-              Manage your account connections and preferences
-            </p>
-          </div>
-          <div class="flex ml-4">
-            <.link
-              navigate="/chat"
-              class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-            >
-              ← Back to Chat
+    <div class="flex h-screen w-full bg-white overflow-hidden">
+      <!-- Main Content Area -->
+      <div class="flex-1 flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h1 class="text-2xl font-semibold text-gray-900">Account Settings</h1>
+          <div class="flex items-center gap-3">
+            <.link navigate={~p"/data"} class="text-gray-400 hover:text-gray-600" aria-label="View Database">
+              <.icon name="hero-circle-stack" class="w-6 h-6" />
+            </.link>
+            <.link navigate={~p"/chat"} class="text-gray-400 hover:text-gray-600" aria-label="Back to Chat">
+              <.icon name="hero-arrow-left" class="w-6 h-6" />
+            </.link>
+            <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
+              <.icon name="hero-x-mark" class="w-6 h-6" />
             </.link>
           </div>
         </div>
 
-        <div>
-          <div class="bg-white shadow sm:rounded-lg">
-            <div class="px-4 py-4 sm:p-4">
-              <h3 class="text-base font-semibold leading-6 text-gray-900">
-                Connected Accounts
-              </h3>
-              <div class="mt-1 max-w-xl text-sm text-gray-500">
-                <p>Connect your accounts to enable AI-powered automation and data access.</p>
-              </div>
+        <!-- Content Area -->
+        <div class="flex-1 overflow-y-auto px-6 py-8">
+          <div class="max-w-4xl mx-auto">
+            <div class="mb-6">
+              <p class="text-sm text-gray-500">
+                Manage your account connections and preferences
+              </p>
+            </div>
 
-              <div class="mt-4 space-y-4">
+            <div class="bg-white shadow sm:rounded-lg">
+              <div class="px-4 py-4 sm:p-4">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">
+                  Connected Accounts
+                </h3>
+                <div class="mt-1 max-w-xl text-sm text-gray-500">
+                  <p>Connect your accounts to enable AI-powered automation and data access.</p>
+                </div>
+
+                <div class="mt-4 space-y-4">
                 <!-- Google Account (Always Connected) -->
                 <div class="flex items-center justify-between">
                   <div class="flex items-center">
@@ -140,7 +147,7 @@ defmodule JumpstartAiWeb.SettingsLive do
                     </span>
                   </div>
                 </div>
-                
+
     <!-- HubSpot Account -->
                 <div class="flex items-center justify-between">
                   <div class="flex items-center">
@@ -179,6 +186,7 @@ defmodule JumpstartAiWeb.SettingsLive do
                       </button>
                     <% end %>
                   </div>
+                </div>
                 </div>
               </div>
             </div>

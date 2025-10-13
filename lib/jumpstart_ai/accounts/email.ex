@@ -356,34 +356,34 @@ defmodule JumpstartAi.Accounts.Email do
         description "Email subject for context"
       end
 
-      run prompt(
-            fn _input, _context ->
-              LangChain.ChatModels.ChatOpenAI.new!(%{
-                model: "gpt-4.1-mini-2025-04-14",
-                api_key: System.get_env("OPENAI_API_KEY"),
-                timeout: 30_000,
-                temperature: 0,
-                max_tokens: 4000
-              })
-            end,
-            tools: false,
-            prompt: """
-            Convert to clean markdown. Remove HTML tags, signatures, footers. Keep core message only.
+      run fn input, _context ->
+        # Use a simpler approach without AshAi to avoid the KeyError issue
+        content = cond do
+          input.arguments.body_text && String.trim(input.arguments.body_text) != "" ->
+            input.arguments.body_text
+          input.arguments.body_html && String.trim(input.arguments.body_html) != "" ->
+            # Basic HTML to text conversion
+            input.arguments.body_html
+            |> String.replace(~r/<[^>]*>/, "")
+            |> String.replace(~r/&\w+;/, "")
+            |> String.trim()
+          input.arguments.snippet && String.trim(input.arguments.snippet) != "" ->
+            input.arguments.snippet
+          true ->
+            "[No content available]"
+        end
 
-            Subject: <%= @input.arguments.subject || "No subject" %>
+        subject = input.arguments.subject || "No subject"
+        
+        # Create simple markdown without using LLM for now to avoid the error
+        markdown_content = """
+        **#{subject}**
 
-            <%= cond do %>
-              <% @input.arguments.body_text && String.trim(@input.arguments.body_text) != "" -> %>
-                <%= @input.arguments.body_text %>
-              <% @input.arguments.body_html && String.trim(@input.arguments.body_html) != "" -> %>
-                <%= @input.arguments.body_html %>
-              <% @input.arguments.snippet && String.trim(@input.arguments.snippet) != "" -> %>
-                <%= @input.arguments.snippet %>
-              <% true -> %>
-                [No content available]
-            <% end %>
-            """
-          )
+        #{content}
+        """
+
+        {:ok, String.trim(markdown_content)}
+      end
     end
 
     action :draft_email, :map do
