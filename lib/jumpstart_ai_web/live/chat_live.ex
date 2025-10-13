@@ -149,6 +149,9 @@ defmodule JumpstartAiWeb.ChatLive do
 
     <!-- Input Area -->
         <div class="border-t border-gray-200 px-6 py-4">
+          <!-- Hidden speech recognition hook -->
+          <div id="speech-recognition" phx-hook="SpeechRecognitionHook" class="hidden"></div>
+
           <div class="max-w-3xl mx-auto">
             <.form
               :let={form}
@@ -250,9 +253,23 @@ defmodule JumpstartAiWeb.ChatLive do
 
                 <button
                   type="button"
-                  class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-black"
+                  phx-click="toggle_speech_recording"
+                  class={[
+                    "w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-black transition-colors",
+                    @is_recording && "bg-red-100 hover:bg-red-200"
+                  ]}
+                  title={@is_recording && "Stop recording" || "Start recording"}
                 >
-                  <.icon name="hero-microphone" class="w-5 h-5 text-gray-600" />
+                  <.icon
+                    name="hero-microphone"
+                    class={
+                      if @is_recording do
+                        "w-5 h-5 text-red-600"
+                      else
+                        "w-5 h-5 text-gray-600"
+                      end
+                    }
+                  />
                 </button>
               </div>
             </.form>
@@ -294,6 +311,9 @@ defmodule JumpstartAiWeb.ChatLive do
       |> assign(:show_mentions, false)
       |> assign(:mention_suggestions, [])
       |> assign(:mention_query, "")
+      |> assign(:is_recording, false)
+      |> assign(:speech_transcript, "")
+      |> assign(:speech_prefix, "")
       |> stream_configure(:conversations, dom_id: &"conversations-#{&1.id}")
       |> stream(:conversations, conversations)
       |> stream_configure(:messages, dom_id: &"messages-#{&1.id}")
@@ -556,6 +576,97 @@ defmodule JumpstartAiWeb.ChatLive do
         {:noreply, socket}
       end
     end
+  end
+
+  # Speech recognition event handlers
+  def handle_event("toggle_speech_recording", _, socket) do
+    new_recording_state = !socket.assigns.is_recording
+
+    # When starting recording, preserve any existing text
+    existing_text =
+      if new_recording_state do
+        case socket.assigns.message_form.source do
+          %Ash.Changeset{attributes: %{text: text}} -> text || ""
+          _ -> ""
+        end
+      else
+        ""
+      end
+
+    socket =
+      socket
+      |> assign(:is_recording, new_recording_state)
+      |> assign(:speech_prefix, existing_text)
+      |> push_event("toggle_recording", %{recording: new_recording_state})
+
+    {:noreply, socket}
+  end
+
+  def handle_event("recording_started", _, socket) do
+    {:noreply, assign(socket, :is_recording, true)}
+  end
+
+  def handle_event("recording_stopped", %{"final_text" => final_text}, socket) do
+    # Prepend any existing text to the final transcript
+    prefix = socket.assigns.speech_prefix
+    full_text = if prefix != "", do: prefix <> " " <> final_text, else: final_text
+
+    # Update textarea with the final transcribed text
+    socket =
+      socket
+      |> assign(:is_recording, false)
+      |> assign(:speech_transcript, final_text)
+      |> assign(:speech_prefix, "")
+      |> push_event("update-speech-text", %{text: full_text})
+
+    {:noreply, socket}
+  end
+
+  def handle_event("speech_interim", %{"text" => text}, socket) do
+    # Prepend any existing text to the speech transcript
+    prefix = socket.assigns.speech_prefix
+    full_text = if prefix != "", do: prefix <> " " <> text, else: text
+
+    # Push event to update textarea with interim transcript
+    socket =
+      socket
+      |> assign(:speech_transcript, text)
+      |> push_event("update-speech-text", %{text: full_text})
+
+    {:noreply, socket}
+  end
+
+  def handle_event("speech_final", %{"text" => text}, socket) do
+    # Prepend any existing text to the speech transcript
+    prefix = socket.assigns.speech_prefix
+    full_text = if prefix != "", do: prefix <> " " <> text, else: text
+
+    # Push event to update textarea with final transcript
+    socket =
+      socket
+      |> assign(:speech_transcript, text)
+      |> push_event("update-speech-text", %{text: full_text})
+
+    {:noreply, socket}
+  end
+
+  def handle_event("speech_error", %{"error" => error}, socket) do
+    # Log error and reset recording state
+    IO.puts("Speech recognition error: #{error}")
+
+    socket =
+      socket
+      |> assign(:is_recording, false)
+      |> assign(:speech_transcript, "")
+      |> assign(:speech_prefix, "")
+
+    {:noreply, socket}
+  end
+
+  def handle_event("speech_not_supported", _, socket) do
+    # Could show a user-facing error message here
+    IO.puts("Speech recognition not supported in this browser")
+    {:noreply, socket}
   end
 
   def handle_info(

@@ -104,6 +104,7 @@ JumpstartAI is a production-ready AI agent designed specifically for financial a
 - Context-aware queries (emails, contacts, meetings)
 - Contact mentions with autocomplete (@-mentions)
 - Markdown rendering for rich text formatting
+- Speech-to-text input using browser Web Speech API
 
 ### 2. RAG (Retrieval-Augmented Generation) System
 - Semantic search across emails using OpenAI embeddings
@@ -238,6 +239,43 @@ The application implements a strict draft-first approach:
 - Send confirmation workflow
 - Protection against accidental sends
 
+### 9. Speech-to-Text Input
+
+The application includes real-time speech-to-text transcription for hands-free interaction:
+
+**Features:**
+- Browser-based Web Speech API integration
+- Real-time transcription with interim results
+- Continuous recording mode
+- Automatic text appending to existing input
+- Visual recording indicator
+- Error handling and browser compatibility detection
+
+**Implementation:**
+- **Frontend Hook:** `SpeechRecognitionHook` (JavaScript)
+  - Uses browser's native Speech Recognition API
+  - Supports both final and interim transcription results
+  - Handles recording lifecycle (start, stop, error)
+  - Continuous mode for uninterrupted dictation
+
+- **LiveView Integration:** `chat_live.ex`
+  - Server-side state management for recording status
+  - Real-time text updates via Phoenix LiveView events
+  - Seamless integration with message input textarea
+  - Preserves existing text when recording starts
+
+**Usage:**
+1. Click the microphone button in the chat interface
+2. Allow browser microphone permissions when prompted
+3. Speak naturally - transcription appears in real-time
+4. Click microphone again to stop recording
+5. Edit transcribed text if needed before sending
+
+**Browser Support:**
+- Chrome/Edge (full support)
+- Safari (WebKit support)
+- Firefox (limited support, requires flags)
+
 ## Technical Stack
 
 ### Backend
@@ -255,6 +293,7 @@ The application implements a strict draft-first approach:
 - **Heroicons 2.1.1** - Icon system
 - **esbuild 0.17.11** - JavaScript bundler
 - **Alpine.js** (via LiveView hooks) - Minimal JavaScript enhancements
+- **Web Speech API** - Browser-native speech recognition for voice input
 
 ### AI & ML
 - **LangChain** - LLM application framework

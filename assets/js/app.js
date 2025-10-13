@@ -135,10 +135,128 @@ let MentionHook = {
   }
 }
 
+// Speech Recognition Hook for microphone input
+let SpeechRecognitionHook = {
+  mounted() {
+    // Check for browser support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      console.error("Speech Recognition API not supported in this browser")
+      this.pushEvent("speech_not_supported", {})
+      return
+    }
+
+    // Initialize recognition
+    this.recognition = new SpeechRecognition()
+    this.recognition.continuous = true
+    this.recognition.interimResults = true
+    this.recognition.lang = 'en-US'
+
+    this.isRecording = false
+    this.finalTranscript = ''
+    this.interimTranscript = ''
+
+    // Handle results
+    this.recognition.onresult = (event) => {
+      let interim = ''
+      let final = ''
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          final += transcript + ' '
+        } else {
+          interim += transcript
+        }
+      }
+
+      if (final) {
+        this.finalTranscript += final
+        this.pushEvent("speech_final", { text: this.finalTranscript.trim() })
+      }
+
+      if (interim) {
+        this.interimTranscript = interim
+        this.pushEvent("speech_interim", { text: this.finalTranscript + interim })
+      }
+    }
+
+    // Handle errors
+    this.recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error)
+      this.pushEvent("speech_error", { error: event.error })
+      this.isRecording = false
+    }
+
+    // Handle end
+    this.recognition.onend = () => {
+      if (this.isRecording) {
+        // Restart if it stops unexpectedly
+        this.recognition.start()
+      }
+    }
+
+    // Listen for toggle event from server
+    this.handleEvent("toggle_recording", ({ recording }) => {
+      if (recording) {
+        this.startRecording()
+      } else {
+        this.stopRecording()
+      }
+    })
+
+    // Listen for start event
+    this.handleEvent("start_recording", () => {
+      this.startRecording()
+    })
+
+    // Listen for stop event
+    this.handleEvent("stop_recording", () => {
+      this.stopRecording()
+    })
+  },
+
+  startRecording() {
+    if (!this.recognition) return
+
+    try {
+      this.isRecording = true
+      this.finalTranscript = ''
+      this.interimTranscript = ''
+      this.recognition.start()
+      this.pushEvent("recording_started", {})
+    } catch (e) {
+      console.error("Failed to start recording:", e)
+      this.pushEvent("speech_error", { error: e.message })
+    }
+  },
+
+  stopRecording() {
+    if (!this.recognition) return
+
+    try {
+      this.isRecording = false
+      this.recognition.stop()
+      this.pushEvent("recording_stopped", { final_text: this.finalTranscript.trim() })
+      this.finalTranscript = ''
+      this.interimTranscript = ''
+    } catch (e) {
+      console.error("Failed to stop recording:", e)
+    }
+  },
+
+  destroyed() {
+    if (this.recognition) {
+      this.isRecording = false
+      this.recognition.stop()
+    }
+  }
+}
+
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {MentionHook}
+  hooks: {MentionHook, SpeechRecognitionHook}
 })
 
 // Show progress bar on live navigation and form submits
@@ -178,6 +296,29 @@ window.addEventListener("phx:scroll-to-bottom", e => {
       }
     }
   }, 50)
+})
+
+// Handle speech text update events
+window.addEventListener("phx:update-speech-text", e => {
+  const textarea = document.getElementById("message-input")
+  if (textarea && textarea.value !== e.detail.text) {
+    // Store current scroll position
+    const scrollTop = textarea.scrollTop
+
+    // Update value
+    textarea.value = e.detail.text
+
+    // Keep cursor at the end for smooth typing appearance
+    textarea.setSelectionRange(e.detail.text.length, e.detail.text.length)
+
+    // Restore scroll position to prevent jumping
+    textarea.scrollTop = scrollTop
+
+    // Trigger input event to sync with LiveView (but don't trigger form validation)
+    const inputEvent = new Event("input", {bubbles: true})
+    inputEvent.skipValidation = true
+    textarea.dispatchEvent(inputEvent)
+  }
 })
 
 // expose liveSocket on window for web console debug logs and latency simulation:
