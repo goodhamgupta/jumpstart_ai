@@ -7,19 +7,25 @@
 # This file is based on these images:
 #
 #   - https://hub.docker.com/r/hexpm/elixir/tags - for the build image
-#   - https://hub.docker.com/_/debian?tab=tags&page=1&name=bullseye-20240205-slim - for the release image
+#   - https://hub.docker.com/_/debian?tab=tags&page=1&name=bullseye-20250929-slim - for the release image
 #   - https://pkgs.org/ - resource for finding needed packages
-#   - Ex: hexpm/elixir:1.15.0-erlang-26.0-debian-bullseye-20240205-slim
+#   - Ex: hexpm/elixir:1.18.4-erlang-28.0.3-debian-bullseye-20250929-slim
 #
-ARG BUILDER_IMAGE="elixir:1.18.4-otp-26"
-ARG DEBIAN_VERSION=bookworm
+ARG ELIXIR_VERSION=1.18.4
+ARG OTP_VERSION=27.3.1
+ARG DEBIAN_VERSION=bullseye-20250929-slim
+
+ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 
 FROM ${BUILDER_IMAGE} as builder
 
-# install build dependencies (including Node.js for npm dependencies)
+# install build dependencies
 RUN apt-get update -y && apt-get install -y build-essential git curl \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get clean && rm -f /var/lib/apt/lists/*_*
+
+# install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
@@ -50,8 +56,8 @@ COPY lib lib
 
 COPY assets assets
 
-# install npm dependencies for Tailwind plugins like DaisyUI
-RUN cd assets && npm install
+# Install npm dependencies
+RUN cd assets && npm install && cd ..
 
 # compile assets
 RUN mix assets.deploy
