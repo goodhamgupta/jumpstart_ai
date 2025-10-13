@@ -17,6 +17,9 @@ defmodule JumpstartAiWeb.ChatLive do
             <.link navigate={~p"/settings"} class="text-gray-400 hover:text-gray-600" aria-label="Settings">
               <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
             </.link>
+            <.link navigate={~p"/sign-out"} class="text-gray-400 hover:text-gray-600" aria-label="Sign out">
+              <.icon name="hero-arrow-right-on-rectangle" class="w-6 h-6" />
+            </.link>
             <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
               <.icon name="hero-x-mark" class="w-6 h-6" />
             </.link>
