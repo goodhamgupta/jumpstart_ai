@@ -196,7 +196,7 @@ defmodule JumpstartAiWeb.DataViewerLive do
                     :snippet,
                     :inserted_at
                   ])
-                  |> Ash.Query.sort(inserted_at: :desc)
+                  |> Ash.Query.sort(date: :desc)
                   |> Ash.Query.offset(offset)
                   |> Ash.Query.limit(page_size)
                   |> Ash.read(actor: user, authorize?: false) do
@@ -275,51 +275,49 @@ defmodule JumpstartAiWeb.DataViewerLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex h-screen w-full bg-white overflow-hidden">
-      <!-- Main Content Area -->
-      <div class="flex-1 flex flex-col">
-        <!-- Header -->
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h1 class="text-2xl font-semibold text-gray-900">Database Viewer</h1>
-          <div class="flex items-center gap-3">
-            <button
-              phx-click="refresh_data"
-              class="text-gray-400 hover:text-gray-600"
-              aria-label="Refresh Data"
-            >
-              <%= if @loading do %>
-                <svg class="animate-spin w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              <% else %>
-                <.icon name="hero-arrow-path" class="w-6 h-6" />
-              <% end %>
-            </button>
-            <.link navigate={~p"/settings"} class="text-gray-400 hover:text-gray-600" aria-label="Settings">
-              <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
-            </.link>
-            <.link navigate={~p"/chat"} class="text-gray-400 hover:text-gray-600" aria-label="Back to Chat">
-              <.icon name="hero-arrow-left" class="w-6 h-6" />
-            </.link>
-            <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
-              <.icon name="hero-x-mark" class="w-6 h-6" />
-            </.link>
-          </div>
+    <div class="h-screen w-full bg-gray-50 flex flex-col">
+      <!-- Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
+        <h1 class="text-2xl font-semibold text-gray-900">Database Viewer</h1>
+        <div class="flex items-center gap-3">
+          <button
+            phx-click="refresh_data"
+            class="text-gray-400 hover:text-gray-600"
+            aria-label="Refresh Data"
+          >
+            <%= if @loading do %>
+              <svg class="animate-spin w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            <% else %>
+              <.icon name="hero-arrow-path" class="w-6 h-6" />
+            <% end %>
+          </button>
+          <.link navigate={~p"/settings"} class="text-gray-400 hover:text-gray-600" aria-label="Settings">
+            <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
+          </.link>
+          <.link navigate={~p"/chat"} class="text-gray-400 hover:text-gray-600" aria-label="Back to Chat">
+            <.icon name="hero-arrow-left" class="w-6 h-6" />
+          </.link>
+          <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
+            <.icon name="hero-x-mark" class="w-6 h-6" />
+          </.link>
         </div>
+      </div>
 
-        <!-- Content Area -->
-        <div class="flex-1 overflow-y-auto px-6 py-8">
-          <div class="w-full">
-            <div class="mb-6">
-              <p class="text-sm text-gray-500">
-                View your contacts, notes, emails, AI tasks, and ongoing instructions stored in the database
-              </p>
-            </div>
+      <!-- Content Area -->
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div class="px-6 pt-8 pb-4">
+          <div class="mb-6">
+            <p class="text-sm text-gray-500">
+              View your contacts, notes, emails, AI tasks, and ongoing instructions stored in the database
+            </p>
+          </div>
 
-            <!-- Tab Navigation -->
-            <div class="border-b border-gray-200 mb-6">
-              <nav class="-mb-px flex space-x-8">
+          <!-- Tab Navigation -->
+          <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8">
                 <button
                   phx-click="switch_tab"
                   phx-value-tab="contacts"
@@ -401,10 +399,13 @@ defmodule JumpstartAiWeb.DataViewerLive do
                   </span>
                 </button>
               </nav>
-            </div>
+          </div>
+        </div>
 
-            <!-- Content Area -->
-            <div class="bg-white shadow sm:rounded-lg mb-8 overflow-hidden">
+        <!-- Table Content Area -->
+        <div class="flex-1 overflow-y-auto bg-gray-50">
+          <div class="p-6">
+            <div class="bg-white shadow sm:rounded-lg">
               <%= if @loading do %>
                 <div class="p-8 text-center">
                   <svg class="animate-spin mx-auto h-8 w-8 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
