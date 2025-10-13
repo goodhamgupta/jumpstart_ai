@@ -10,9 +10,14 @@ defmodule JumpstartAiWeb.ChatLive do
         <!-- Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h1 class="text-2xl font-semibold text-gray-900">Ask Anything</h1>
-          <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
-            <.icon name="hero-x-mark" class="w-6 h-6" />
-          </.link>
+          <div class="flex items-center gap-3">
+            <.link navigate={~p"/settings"} class="text-gray-400 hover:text-gray-600" aria-label="Settings">
+              <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
+            </.link>
+            <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
+              <.icon name="hero-x-mark" class="w-6 h-6" />
+            </.link>
+          </div>
         </div>
 
     <!-- Tabs -->
@@ -276,7 +281,7 @@ defmodule JumpstartAiWeb.ChatLive do
       |> assign(:thinking, false)
       |> assign(:active_tab, :chat)
       |> assign(:context_type, "all_meetings")
-      |> assign(:context_description, "Context set to all meetings")
+      |> assign(:context_description, "Searching across all meetings")
       |> assign(:has_conversations, length(conversations) > 0)
       |> assign(:conversations_list, conversations)
       |> assign(:conversation, nil)
@@ -408,10 +413,10 @@ defmodule JumpstartAiWeb.ChatLive do
   def handle_event("change_context", %{"context" => context}, socket) do
     description =
       case context do
-        "all_meetings" -> "Context set to all meetings"
-        "all_contacts" -> "Context set to all contacts"
-        "all_emails" -> "Context set to all emails"
-        _ -> "Context set to all meetings"
+        "all_meetings" -> "Searching across all meetings"
+        "all_contacts" -> "Searching across all contacts"
+        "all_emails" -> "Searching across all emails"
+        _ -> "Searching across all meetings"
       end
 
     socket =
