@@ -14,7 +14,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-x-mark" class="w-6 h-6" />
           </.link>
         </div>
-        
+
     <!-- Tabs -->
         <div class="flex items-center justify-between px-6 border-b border-gray-200">
           <div class="flex gap-8">
@@ -48,7 +48,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-plus" class="w-4 h-4" /> New thread
           </button>
         </div>
-        
+
     <!-- Context Display -->
         <div class="px-6 py-4 border-b border-gray-200">
           <div class="flex items-center justify-center gap-4 max-w-3xl mx-auto">
@@ -62,7 +62,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <div class="flex-1 h-px bg-gray-200"></div>
           </div>
         </div>
-        
+
     <!-- Messages Area -->
         <div class="flex-1 overflow-y-auto px-6 py-8">
           <div :if={@active_tab == :chat}>
@@ -88,7 +88,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   </div>
                 </div>
               </div>
-              
+
     <!-- Thinking Indicator -->
               <div :if={@thinking} class="max-w-3xl mx-auto mt-6">
                 <div class="flex items-center gap-2 text-gray-500">
@@ -135,7 +135,7 @@ defmodule JumpstartAiWeb.ChatLive do
             </div>
           </div>
         </div>
-        
+
     <!-- Input Area -->
         <div class="border-t border-gray-200 px-6 py-4">
           <div class="max-w-3xl mx-auto">
@@ -160,7 +160,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   rows="3"
                   class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-400"
                 ></textarea>
-                
+
     <!-- Mentions Dropdown -->
                 <div
                   :if={@show_mentions && length(@mention_suggestions) > 0}
@@ -206,7 +206,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   <.icon name="hero-arrow-up" class="w-5 h-5 text-white" />
                 </button>
               </div>
-              
+
     <!-- Action Buttons Row -->
               <div class="flex items-center justify-between mt-3">
                 <div class="flex items-center gap-2">
@@ -235,19 +235,6 @@ defmodule JumpstartAiWeb.ChatLive do
                     </select>
                   </div>
 
-                  <button
-                    type="button"
-                    class="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200"
-                  >
-                    <.icon name="hero-calendar" class="w-5 h-5 text-red-600" />
-                  </button>
-
-                  <button
-                    type="button"
-                    class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-100 hover:bg-blue-200"
-                  >
-                    <.icon name="hero-map-pin" class="w-5 h-5 text-blue-600" />
-                  </button>
                 </div>
 
                 <button
