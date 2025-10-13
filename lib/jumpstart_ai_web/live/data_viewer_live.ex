@@ -13,15 +13,21 @@ defmodule JumpstartAiWeb.DataViewerLive do
      |> assign(:contacts, [])
      |> assign(:contact_notes, [])
      |> assign(:emails, [])
+     |> assign(:tasks, [])
+     |> assign(:ongoing_instructions, [])
      |> assign(:loading, true)
      # Pagination state
      |> assign(:contacts_page, 1)
      |> assign(:contact_notes_page, 1)
      |> assign(:emails_page, 1)
+     |> assign(:tasks_page, 1)
+     |> assign(:ongoing_instructions_page, 1)
      |> assign(:page_size, 25)
      |> assign(:contacts_total, 0)
      |> assign(:contact_notes_total, 0)
      |> assign(:emails_total, 0)
+     |> assign(:tasks_total, 0)
+     |> assign(:ongoing_instructions_total, 0)
      |> load_data()}
   end
 
@@ -52,6 +58,8 @@ defmodule JumpstartAiWeb.DataViewerLive do
       "contacts" -> assign(socket, :contacts_page, page)
       "contact_notes" -> assign(socket, :contact_notes_page, page)
       "emails" -> assign(socket, :emails_page, page)
+      "tasks" -> assign(socket, :tasks_page, page)
+      "ongoing_instructions" -> assign(socket, :ongoing_instructions_page, page)
     end
 
     {:noreply,
@@ -73,13 +81,23 @@ defmodule JumpstartAiWeb.DataViewerLive do
     # Load emails with pagination
     {emails_result, emails_total} = load_emails_paginated(user, socket.assigns.emails_page, page_size)
 
+    # Load tasks with pagination
+    {tasks_result, tasks_total} = load_tasks_paginated(user, socket.assigns.tasks_page, page_size)
+
+    # Load ongoing instructions with pagination
+    {ongoing_instructions_result, ongoing_instructions_total} = load_ongoing_instructions_paginated(user, socket.assigns.ongoing_instructions_page, page_size)
+
     socket
     |> assign(:contacts, contacts_result)
     |> assign(:contact_notes, notes_result)
     |> assign(:emails, emails_result)
+    |> assign(:tasks, tasks_result)
+    |> assign(:ongoing_instructions, ongoing_instructions_result)
     |> assign(:contacts_total, contacts_total)
     |> assign(:contact_notes_total, notes_total)
     |> assign(:emails_total, emails_total)
+    |> assign(:tasks_total, tasks_total)
+    |> assign(:ongoing_instructions_total, ongoing_instructions_total)
     |> assign(:loading, false)
   end
 
@@ -189,6 +207,71 @@ defmodule JumpstartAiWeb.DataViewerLive do
     {emails, total}
   end
 
+  defp load_tasks_paginated(user, page, page_size) do
+    offset = (page - 1) * page_size
+
+    # Get all user tasks for counting and pagination
+    all_tasks = case JumpstartAi.Chat.Task
+                     |> Ash.Query.for_read(:read)
+                     |> Ash.read(actor: user, authorize?: false) do
+      {:ok, tasks} -> Enum.filter(tasks, fn task -> task.user_id == user.id end)
+      {:error, _} -> []
+    end
+
+    total = length(all_tasks)
+
+    # Get paginated results
+    tasks = all_tasks
+            |> Enum.sort_by(&(&1.inserted_at), {:desc, DateTime})
+            |> Enum.drop(offset)
+            |> Enum.take(page_size)
+
+    # Enhance tasks with tool call information from related messages
+    tasks_with_tool_calls = Enum.map(tasks, fn task ->
+      # Get recent messages from the task's conversation that contain tool calls
+      tool_call_messages = case JumpstartAi.Chat.Message
+                               |> Ash.Query.for_read(:read)
+                               |> Ash.read(actor: user, authorize?: false) do
+        {:ok, messages} ->
+          messages
+          |> Enum.filter(fn msg -> 
+            msg.conversation_id == task.conversation_id && 
+            msg.tool_calls && 
+            length(msg.tool_calls) > 0 
+          end)
+          |> Enum.sort_by(&(&1.inserted_at), {:desc, DateTime})
+          |> Enum.take(10)
+        {:error, _} -> []
+      end
+
+      Map.put(task, :tool_call_messages, tool_call_messages)
+    end)
+
+    {tasks_with_tool_calls, total}
+  end
+
+  defp load_ongoing_instructions_paginated(user, page, page_size) do
+    offset = (page - 1) * page_size
+
+    # Get all user instructions for counting and pagination
+    all_instructions = case JumpstartAi.Chat.OngoingInstruction
+                           |> Ash.Query.for_read(:read)
+                           |> Ash.read(actor: user, authorize?: false) do
+      {:ok, instructions} -> Enum.filter(instructions, fn inst -> inst.user_id == user.id end)
+      {:error, _} -> []
+    end
+
+    total = length(all_instructions)
+
+    # Get paginated results
+    instructions = all_instructions
+                   |> Enum.sort_by(&(&1.inserted_at), {:desc, DateTime})
+                   |> Enum.drop(offset)
+                   |> Enum.take(page_size)
+
+    {instructions, total}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -230,7 +313,7 @@ defmodule JumpstartAiWeb.DataViewerLive do
           <div class="w-full">
             <div class="mb-6">
               <p class="text-sm text-gray-500">
-                View your contacts, notes, and emails stored in the database
+                View your contacts, notes, emails, AI tasks, and ongoing instructions stored in the database
               </p>
             </div>
 
@@ -285,6 +368,38 @@ defmodule JumpstartAiWeb.DataViewerLive do
                     <%= @emails_total %>
                   </span>
                 </button>
+                <button
+                  phx-click="switch_tab"
+                  phx-value-tab="tasks"
+                  class={[
+                    "py-2 px-1 border-b-2 font-medium text-sm",
+                    if(@active_tab == :tasks,
+                      do: "border-blue-500 text-blue-600",
+                      else: "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    )
+                  ]}
+                >
+                  Tasks
+                  <span class="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2.5 rounded-full text-xs font-medium">
+                    <%= @tasks_total %>
+                  </span>
+                </button>
+                <button
+                  phx-click="switch_tab"
+                  phx-value-tab="ongoing_instructions"
+                  class={[
+                    "py-2 px-1 border-b-2 font-medium text-sm",
+                    if(@active_tab == :ongoing_instructions,
+                      do: "border-blue-500 text-blue-600",
+                      else: "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    )
+                  ]}
+                >
+                  Instructions
+                  <span class="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2.5 rounded-full text-xs font-medium">
+                    <%= @ongoing_instructions_total %>
+                  </span>
+                </button>
               </nav>
             </div>
 
@@ -322,6 +437,22 @@ defmodule JumpstartAiWeb.DataViewerLive do
                       table="emails"
                       current_page={@emails_page}
                       total_records={@emails_total}
+                      page_size={@page_size}
+                    />
+                  <% :tasks -> %>
+                    <.tasks_table tasks={@tasks} />
+                    <.pagination_controls
+                      table="tasks"
+                      current_page={@tasks_page}
+                      total_records={@tasks_total}
+                      page_size={@page_size}
+                    />
+                  <% :ongoing_instructions -> %>
+                    <.ongoing_instructions_table ongoing_instructions={@ongoing_instructions} />
+                    <.pagination_controls
+                      table="ongoing_instructions"
+                      current_page={@ongoing_instructions_page}
+                      total_records={@ongoing_instructions_total}
                       page_size={@page_size}
                     />
                 <% end %>
@@ -640,6 +771,191 @@ defmodule JumpstartAiWeb.DataViewerLive do
           </div>
         </div>
       </div>
+    </div>
+    """
+  end
+
+  def tasks_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <%= if Enum.empty?(@tasks) do %>
+        <div class="p-8 text-center">
+          <p class="text-gray-500">No tasks found</p>
+        </div>
+      <% else %>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tool Calls</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Context</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Action</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            <%= for task <- @tasks do %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 text-sm text-gray-900">
+                  <div class="max-w-sm truncate">
+                    <%= task.description %>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <span class={[
+                    "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+                    case task.status do
+                      :active -> "bg-blue-100 text-blue-800"
+                      :waiting_for_response -> "bg-yellow-100 text-yellow-800"
+                      :completed -> "bg-green-100 text-green-800"
+                      :failed -> "bg-red-100 text-red-800"
+                      _ -> "bg-gray-100 text-gray-800"
+                    end
+                  ]}>
+                    <%= String.upcase(to_string(task.status)) %>
+                  </span>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                  <div class="max-w-xs">
+                    <%= if Map.has_key?(task, :tool_call_messages) && !Enum.empty?(task.tool_call_messages) do %>
+                      <details class="cursor-pointer">
+                        <summary class="text-blue-600 hover:text-blue-800">
+                          <%= Enum.count(task.tool_call_messages) %> messages with tool calls
+                        </summary>
+                        <div class="mt-2 space-y-2 max-h-40 overflow-auto">
+                          <%= for message <- Enum.take(task.tool_call_messages, 3) do %>
+                            <div class="text-xs bg-gray-50 p-2 rounded">
+                              <div class="font-medium text-gray-700 mb-1">
+                                <%= Calendar.strftime(message.inserted_at, "%Y-%m-%d %H:%M") %>
+                              </div>
+                              <%= for tool_call <- message.tool_calls || [] do %>
+                                <div class="flex items-center gap-2 mb-1">
+                                  <span class={[
+                                    "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
+                                    case Map.get(tool_call, "status") do
+                                      "complete" -> "bg-green-100 text-green-800"
+                                      "pending" -> "bg-yellow-100 text-yellow-800"
+                                      _ -> "bg-gray-100 text-gray-800"
+                                    end
+                                  ]}>
+                                    <%= Map.get(tool_call, "status", "unknown") %>
+                                  </span>
+                                  <span class="font-mono text-blue-800">
+                                    <%= Map.get(tool_call, "name", "unknown") %>
+                                  </span>
+                                </div>
+                              <% end %>
+                            </div>
+                          <% end %>
+                        </div>
+                      </details>
+                    <% else %>
+                      <span class="text-gray-400">No tool calls</span>
+                    <% end %>
+                  </div>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                  <div class="max-w-xs truncate">
+                    <%= if task.context && map_size(task.context) > 0 do %>
+                      <details class="cursor-pointer">
+                        <summary class="text-blue-600 hover:text-blue-800">Show context</summary>
+                        <pre class="mt-2 text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32"><%= Jason.encode!(task.context, pretty: true) %></pre>
+                      </details>
+                    <% else %>
+                      <span class="text-gray-400">No context</span>
+                    <% end %>
+                  </div>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-900">
+                  <div class="max-w-xs truncate">
+                    <%= task.next_action || "-" %>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <%= if task.inserted_at do %>
+                    <%= Calendar.strftime(task.inserted_at, "%Y-%m-%d %H:%M") %>
+                  <% else %>
+                    -
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+    """
+  end
+
+  def ongoing_instructions_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <%= if Enum.empty?(@ongoing_instructions) do %>
+        <div class="p-8 text-center">
+          <p class="text-gray-500">No ongoing instructions found</p>
+        </div>
+      <% else %>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger Conditions</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Triggered</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            <%= for instruction <- @ongoing_instructions do %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 text-sm text-gray-900">
+                  <div class="max-w-md truncate">
+                    <%= instruction.instruction %>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <span class={[
+                    "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+                    if(instruction.is_active,
+                      do: "bg-green-100 text-green-800",
+                      else: "bg-gray-100 text-gray-800"
+                    )
+                  ]}>
+                    <%= if instruction.is_active, do: "ACTIVE", else: "INACTIVE" %>
+                  </span>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                  <div class="max-w-xs truncate">
+                    <%= if instruction.trigger_conditions && map_size(instruction.trigger_conditions) > 0 do %>
+                      <details class="cursor-pointer">
+                        <summary class="text-blue-600 hover:text-blue-800">Show conditions</summary>
+                        <pre class="mt-2 text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32"><%= Jason.encode!(instruction.trigger_conditions, pretty: true) %></pre>
+                      </details>
+                    <% else %>
+                      <span class="text-gray-400">No conditions</span>
+                    <% end %>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <%= if instruction.last_triggered_at do %>
+                    <%= Calendar.strftime(instruction.last_triggered_at, "%Y-%m-%d %H:%M") %>
+                  <% else %>
+                    <span class="text-gray-400">Never</span>
+                  <% end %>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <%= if instruction.inserted_at do %>
+                    <%= Calendar.strftime(instruction.inserted_at, "%Y-%m-%d %H:%M") %>
+                  <% else %>
+                    -
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
     </div>
     """
   end

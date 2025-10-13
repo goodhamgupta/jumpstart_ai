@@ -114,8 +114,7 @@ defmodule JumpstartAi.Accounts.Contact do
                       |> Ash.Changeset.for_update(:vectorize, %{})
                       |> Ash.update(
                         actor: %AshAi{},
-                        authorize?: false,
-                        return_notifications?: true
+                        authorize?: false
                       ) do
                    {:ok, updated_contact} ->
                      {:ok, updated_contact}
@@ -683,6 +682,14 @@ defmodule JumpstartAi.Accounts.Contact do
 
     bypass action(:get_contact_by_id) do
       authorize_if actor_present()
+    end
+
+    bypass action(:create_from_hubspot) do
+      authorize_if always()
+    end
+
+    bypass action(:create_from_google) do
+      authorize_if always()
     end
 
     policy always() do

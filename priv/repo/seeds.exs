@@ -2,6 +2,8 @@
 #
 #     mix run priv/repo/seeds.exs
 
+import Ash.Expr
+
 # Example: Create a test user and some contacts if they don't exist
 case JumpstartAi.Accounts.User |> Ash.Query.limit(1) |> Ash.read(authorize?: false) do
   {:ok, []} ->
@@ -13,7 +15,7 @@ case JumpstartAi.Accounts.User |> Ash.Query.limit(1) |> Ash.read(authorize?: fal
 
     # Check if user already has contacts
     case JumpstartAi.Accounts.Contact
-         |> Ash.Query.filter(user_id == user.id)
+         |> Ash.Query.filter(expr(user_id == ^user.id))
          |> Ash.Query.limit(1)
          |> Ash.read(authorize?: false) do
       {:ok, []} ->

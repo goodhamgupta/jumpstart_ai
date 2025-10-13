@@ -63,7 +63,6 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
   defp enqueue_user_sync_jobs(user) do
     jobs = []
 
-    # Enqueue Google service sync jobs if user has valid Google token
     jobs =
       if user_has_valid_google_token?(user) do
         google_jobs = [
@@ -78,16 +77,20 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
         jobs
       end
 
-    # Enqueue HubSpot sync job if user has valid HubSpot token  
     jobs =
       if not is_nil(user.hubspot_access_token) do
+        Logger.info("PeriodicSyncScheduler - Enqueuing HubSpot sync jobs for user #{user.id}")
+
         hubspot_jobs = [
-          # HubSpot contacts sync (notes sync is automatically scheduled after contacts)
           {HubSpotSync, %{user_id: user.id, sync_type: "contacts"}, 90}
         ]
 
         jobs ++ hubspot_jobs
       else
+        Logger.info(
+          "PeriodicSyncScheduler - No valid HubSpot token for user #{user.id}, skipping HubSpot sync jobs"
+        )
+
         jobs
       end
 
@@ -116,13 +119,15 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
   defp after_sync_completed(user_id) do
     # After each sync, check for proactive opportunities by detecting actual changes
     changes = detect_recent_changes(user_id)
-    
+
     # Only enqueue ProactiveAgent if there are actual changes
     if map_size(changes) > 0 do
       case JumpstartAi.Workers.ProactiveAgent.new(%{user_id: user_id, changes: changes})
            |> Oban.insert(schedule_in: 180, queue: :proactive_actions) do
         {:ok, _job} ->
-          Logger.debug("PeriodicSyncScheduler - Enqueued ProactiveAgent job for user #{user_id} with changes: #{inspect(Map.keys(changes))}")
+          Logger.debug(
+            "PeriodicSyncScheduler - Enqueued ProactiveAgent job for user #{user_id} with changes: #{inspect(Map.keys(changes))}"
+          )
 
         {:error, error} ->
           Logger.error(
@@ -130,7 +135,9 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
           )
       end
     else
-      Logger.debug("PeriodicSyncScheduler - No recent changes detected for user #{user_id}, skipping ProactiveAgent")
+      Logger.debug(
+        "PeriodicSyncScheduler - No recent changes detected for user #{user_id}, skipping ProactiveAgent"
+      )
     end
   end
 
@@ -140,13 +147,13 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
     changes = %{}
 
     # Check for new emails
-    changes = 
+    changes =
       case get_recent_emails(user_id, cutoff_time) do
         [] -> changes
         new_emails -> Map.put(changes, "new_emails", format_new_emails(new_emails))
       end
 
-    # Check for new contacts  
+    # Check for new contacts
     changes =
       case get_recent_contacts(user_id, cutoff_time) do
         [] -> changes
@@ -166,7 +173,15 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
   defp get_recent_emails(user_id, cutoff_time) do
     case JumpstartAi.Accounts.Email
          |> Ash.Query.for_read(:read_user, %{user_id: user_id})
-         |> Ash.Query.select([:id, :subject, :from_email, :from_name, :snippet, :date, :inserted_at])
+         |> Ash.Query.select([
+           :id,
+           :subject,
+           :from_email,
+           :from_name,
+           :snippet,
+           :date,
+           :inserted_at
+         ])
          |> Ash.Query.sort(inserted_at: :desc)
          |> Ash.Query.limit(50)
          |> Ash.read!(authorize?: false) do

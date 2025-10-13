@@ -508,7 +508,7 @@ defmodule JumpstartAi.HubSpotService do
                 hubspot_refresh_token: tokens["refresh_token"] || user.hubspot_refresh_token,
                 hubspot_token_expires_at: expires_at
               })
-              |> Ash.update()
+              |> Ash.update(authorize?: false)
               |> case do
                 {:ok, _updated_user} ->
                   Logger.info("HubSpot - Successfully refreshed access token")
