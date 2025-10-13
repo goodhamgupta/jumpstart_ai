@@ -40,21 +40,44 @@ defmodule JumpstartAiWeb.CoreComponents do
   end
 
   defp markdown_to_html(text) when is_binary(text) do
-    # First process mentions, then markdown
-    text_with_mentions = process_mentions(text)
+    # Temporarily escape mentions to prevent Earmark from processing them as links
+    {escaped_text, mention_map} = escape_mentions(text)
 
-    case Earmark.as_html(text_with_mentions) do
-      {:ok, html, _} -> html
-      {:error, _html, _errors} -> text
-    end
+    # Convert markdown to HTML
+    html =
+      case Earmark.as_html(escaped_text) do
+        {:ok, html, _} -> html
+        {:error, _html, _errors} -> escaped_text
+      end
+
+    # Restore and process mentions
+    restore_and_process_mentions(html, mention_map)
   end
 
   defp markdown_to_html(_), do: ""
 
-  defp process_mentions(text) do
-    # Replace @[Name](contact_id) with styled HTML
-    ~r/@\[([^\]]+)\]\(([^)]+)\)/
-    |> Regex.replace(text, fn _, name, _contact_id ->
+  defp escape_mentions(text) do
+    # Find all mentions and create placeholders
+    mentions_with_index =
+      ~r/@\[([^\]]+)\]\(([^)]+)\)/
+      |> Regex.scan(text, capture: :all)
+      |> Enum.with_index()
+
+    # Create mention map and escaped text
+    {escaped_text, mention_map} =
+      Enum.reduce(mentions_with_index, {text, %{}}, fn {[full_match, name, contact_id], index},
+                                                       {acc_text, acc_map} ->
+        placeholder = "MENTIONPLACEHOLDER#{index}ENDPLACEHOLDER"
+        new_text = String.replace(acc_text, full_match, placeholder, global: false)
+        new_map = Map.put(acc_map, placeholder, {name, contact_id})
+        {new_text, new_map}
+      end)
+
+    {escaped_text, mention_map}
+  end
+
+  defp restore_and_process_mentions(html, mention_map) do
+    Enum.reduce(mention_map, html, fn {placeholder, {name, _contact_id}}, acc ->
       # Extract initials from the name
       initials =
         name
@@ -64,10 +87,12 @@ defmodule JumpstartAiWeb.CoreComponents do
         |> Enum.join("")
         |> String.upcase()
 
-      ~s(<span class="inline-mention">
+      mention_html = ~s(<span class="inline-mention">
         <span class="mention-avatar">#{initials}</span>
         <span class="mention-name">#{name}</span>
       </span>)
+
+      String.replace(acc, placeholder, mention_html)
     end)
   end
 

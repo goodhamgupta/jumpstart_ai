@@ -461,7 +461,7 @@ defmodule JumpstartAiWeb.ChatLive do
     {:noreply, socket}
   end
 
-  def handle_event("select_mention", %{"contact_id" => contact_id} = params, socket) do
+  def handle_event("select_mention", %{"contact_id" => contact_id} = _params, socket) do
     contact = Enum.find(socket.assigns.mention_suggestions, &(&1.id == contact_id))
 
     if contact do
@@ -470,7 +470,11 @@ defmodule JumpstartAiWeb.ChatLive do
       mention_text = "@[#{full_name}](#{contact.id})"
 
       # Pass the current form value to JavaScript
-      current_text = socket.assigns.message_form.source.changes[:text] || ""
+      current_text =
+        case socket.assigns.message_form.source do
+          %Ash.Changeset{attributes: %{text: text}} -> text || ""
+          _ -> ""
+        end
 
       socket =
         socket
@@ -493,6 +497,7 @@ defmodule JumpstartAiWeb.ChatLive do
       socket
       |> assign(:show_mentions, false)
       |> assign(:mention_suggestions, [])
+      |> assign(:mention_query, "")
 
     {:noreply, socket}
   end

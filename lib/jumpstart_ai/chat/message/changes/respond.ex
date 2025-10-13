@@ -88,9 +88,18 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
         - Use list_drafts to help users review and manage their pending emails
         - Use send_email_with_draft (with draft_id) as the ONLY way to send emails
 
+        IMPORTANT CONTACT MENTION HANDLING:
+        - When users mention contacts using @[Name](contact_id) format, parse the contact_id from the mention
+        - ALWAYS use get_contact_by_id with the exact contact_id from the mention
+        - Do NOT search by name when a contact_id is provided in a mention
+        - Example: "tell me about @[John Doe](abc-123-def)" -> use get_contact_by_id with contact_id "abc-123-def"
+        - The contact_id in mentions is the definitive reference - use it directly
+        - Only fall back to search_contacts when no contact_id is provided or when the user asks for a general search
+
         Available capabilities:
         - Search and analyze emails, contacts, notes, and calendar events semantically
         - List recent emails, contacts, notes, and calendar events for quick overview
+        - Get detailed contact information by ID when mentioned in messages  
         - Create email drafts for user review and send approved drafts
         - Create calendar events and schedule meetings with attendees
         - Find relevant information using AI-powered search
@@ -129,7 +138,8 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
           :list_contacts,
           :list_contact_notes,
           :list_calendar_events,
-          :find_contact
+          :search_contacts,
+          :get_contact_by_id
         ],
         actor: context.actor
       )

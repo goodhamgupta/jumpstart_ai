@@ -371,14 +371,15 @@ defmodule JumpstartAi.Accounts.Contact do
       end
     end
 
-    action :find_contact, {:array, :map} do
+    action :search_contacts, {:array, :map} do
       description """
-      Find contacts by searching name, email, or company. Uses pattern matching to find contacts that match the search query.
+      Unified contact search that tries both field-based and semantic search automatically.
+      First performs exact field matching, then falls back to semantic search if few results found.
       """
 
       argument :query, :string do
         allow_nil? false
-        description "Search query to find contacts by name, email, or company"
+        description "Search query - can be name, email, company, or natural language description"
       end
 
       argument :limit, :integer do
@@ -389,12 +390,14 @@ defmodule JumpstartAi.Accounts.Contact do
 
       run fn input, context ->
         user_id = context.actor.id
-        search_query = "%#{input.arguments.query}%"
+        search_query = input.arguments.query
         limit = input.arguments.limit || 10
 
-        # Use raw SQL to search across contact fields
-        sql_query = """
-        SELECT id, firstname, lastname, email, company, phone, lifecycle_stage, source
+        # First try field-based search
+        field_search_pattern = "%#{search_query}%"
+
+        field_sql = """
+        SELECT id, firstname, lastname, email, company, phone, lifecycle_stage, source, notes_summary
         FROM contacts
         WHERE user_id = $1
           AND (
@@ -407,37 +410,34 @@ defmodule JumpstartAi.Accounts.Contact do
         LIMIT $3
         """
 
-        case JumpstartAi.Repo.query(sql_query, [
+        case JumpstartAi.Repo.query(field_sql, [
                Ecto.UUID.dump!(user_id),
-               search_query,
+               field_search_pattern,
                limit
              ]) do
-          {:ok, %{rows: rows}} ->
-            formatted_contacts =
-              Enum.map(rows, fn [
-                                  _id,
-                                  firstname,
-                                  lastname,
-                                  email,
-                                  company,
-                                  phone,
-                                  lifecycle_stage,
-                                  source
-                                ] ->
-                %{
-                  "name" => "#{firstname || ""} #{lastname || ""}" |> String.trim(),
-                  "email" => email,
-                  "company" => company,
-                  "phone" => phone,
-                  "lifecycle_stage" => lifecycle_stage,
-                  "source" => source
-                }
-              end)
+          {:ok, %{rows: field_rows}} when length(field_rows) >= 3 ->
+            # Good field results, use them
+            format_contact_results(field_rows)
 
-            {:ok, formatted_contacts}
+          {:ok, %{rows: field_rows}} ->
+            # Few field results, try semantic search too
+            case semantic_search(user_id, search_query, limit - length(field_rows)) do
+              {:ok, semantic_results} ->
+                # Combine and deduplicate results
+                all_results =
+                  (field_rows ++ semantic_results)
+                  |> Enum.uniq_by(fn [id | _] -> id end)
+                  |> Enum.take(limit)
+
+                format_contact_results(all_results)
+
+              {:error, _} ->
+                # Fall back to field results only
+                format_contact_results(field_rows)
+            end
 
           {:error, error} ->
-            {:error, "Failed to find contacts: #{inspect(error)}"}
+            {:error, "Failed to search contacts: #{inspect(error)}"}
         end
       end
     end
@@ -586,6 +586,62 @@ defmodule JumpstartAi.Accounts.Contact do
         end
       end
     end
+
+    action :get_contact_by_id, :map do
+      description """
+      Gets a single contact by ID. Returns full contact details if found.
+      """
+
+      argument :contact_id, :uuid do
+        allow_nil? false
+        description "The ID of the contact to retrieve"
+      end
+
+      run fn input, context ->
+        user_id = context.actor.id
+        contact_id = input.arguments.contact_id
+
+        case JumpstartAi.Accounts.Contact
+             |> Ash.Query.for_read(:get_by_user, %{user_id: user_id})
+             |> Ash.Query.filter(expr(id == ^contact_id))
+             |> Ash.Query.select([
+               :id,
+               :firstname,
+               :lastname,
+               :email,
+               :company,
+               :phone,
+               :lifecycle_stage,
+               :source,
+               :notes_summary,
+               :external_updated_at
+             ])
+             |> Ash.read_one(actor: context.actor, authorize?: false) do
+          {:ok, nil} ->
+            {:error, "Contact not found"}
+
+          {:ok, contact} ->
+            formatted_contact = %{
+              "id" => contact.id,
+              "name" => "#{contact.firstname || ""} #{contact.lastname || ""}" |> String.trim(),
+              "email" => contact.email,
+              "company" => contact.company,
+              "phone" => contact.phone,
+              "lifecycle_stage" => contact.lifecycle_stage,
+              "source" => contact.source,
+              "notes_summary" => contact.notes_summary,
+              "last_updated" =>
+                contact.external_updated_at &&
+                  DateTime.to_iso8601(contact.external_updated_at)
+            }
+
+            {:ok, formatted_contact}
+
+          {:error, reason} ->
+            {:error, "Failed to get contact: #{inspect(reason)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -617,7 +673,15 @@ defmodule JumpstartAi.Accounts.Contact do
       authorize_if actor_present()
     end
 
+    bypass action(:search_contacts) do
+      authorize_if actor_present()
+    end
+
     bypass action(:search_for_mention) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:get_contact_by_id) do
       authorize_if actor_present()
     end
 
@@ -705,6 +769,64 @@ defmodule JumpstartAi.Accounts.Contact do
   identities do
     identity :unique_external_contact, [:user_id, :source, :external_id]
     identity :unique_user_email, [:user_id, :email]
+  end
+
+  # Helper functions for unified search
+  defp semantic_search(user_id, query, limit) do
+    with {:ok, [search_vector]} <- JumpstartAi.OpenAiEmbeddingModel.generate([query], []) do
+      semantic_sql = """
+      SELECT id, firstname, lastname, email, company, phone, lifecycle_stage, source, notes_summary
+      FROM contacts 
+      WHERE user_id = $1 
+        AND full_text_vector IS NOT NULL 
+        AND (full_text_vector <=> $2) >= 0.7
+      ORDER BY (full_text_vector <=> $2) DESC
+      LIMIT $3
+      """
+
+      JumpstartAi.Repo.query(semantic_sql, [
+        Ecto.UUID.dump!(user_id),
+        search_vector,
+        limit
+      ])
+      |> case do
+        {:ok, %{rows: rows}} -> {:ok, rows}
+        error -> error
+      end
+    end
+  end
+
+  defp format_contact_results(rows) do
+    formatted_contacts =
+      Enum.map(rows, fn [
+                          id,
+                          firstname,
+                          lastname,
+                          email,
+                          company,
+                          phone,
+                          lifecycle_stage,
+                          source,
+                          notes_summary
+                        ] ->
+        %{
+          "id" => Ecto.UUID.load!(id),
+          "name" => "#{firstname || ""} #{lastname || ""}" |> String.trim(),
+          "email" => email,
+          "company" => company,
+          "phone" => phone,
+          "lifecycle_stage" => lifecycle_stage,
+          "source" => source,
+          "notes_summary" =>
+            case notes_summary do
+              nil -> nil
+              text when byte_size(text) > 200 -> String.slice(text, 0, 200) <> "..."
+              text -> text
+            end
+        }
+      end)
+
+    {:ok, formatted_contacts}
   end
 
   # Helper function to generate a summary for vector search from HubSpot data
