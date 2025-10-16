@@ -28,7 +28,15 @@ defmodule JumpstartAi.Chat do
       description """
       Create a standing instruction that will trigger automatically when specific conditions are met.
       Use this when the user gives instructions like "When X happens, do Y" or "Always do Z when...".
-      These instructions will be monitored and executed proactively.
+
+      The system will automatically parse the instruction to determine trigger conditions from:
+      - New emails from unknown senders
+      - New emails from specific senders
+      - New contacts being created
+      - New calendar events being created
+
+      Simply provide the natural language instruction - trigger conditions will be parsed automatically.
+      These instructions will be monitored and executed proactively during background sync operations.
       """
     end
 

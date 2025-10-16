@@ -9,15 +9,12 @@ defmodule JumpstartAi.OpenAiEmbeddingModel do
   require Logger
 
   @impl true
-  # text-embedding-3-small dimensions
   def dimensions(_opts), do: 1536
 
   @impl true
   def generate(texts, opts) do
     Logger.info("AshAi generate called with texts: #{inspect(texts)}, opts: #{inspect(opts)}")
 
-    # OpenAI API expects individual strings, not arrays
-    # If we get a list, process each text separately
     texts_list = if is_list(texts), do: texts, else: [texts]
 
     api_key = System.get_env("OPENAI_API_KEY")
@@ -25,13 +22,11 @@ defmodule JumpstartAi.OpenAiEmbeddingModel do
     if is_nil(api_key) or api_key == "" do
       {:error, "OPENAI_API_KEY environment variable is not set"}
     else
-      # Process each text individually
       results =
         Enum.map(texts_list, fn text ->
           generate_single_embedding(text, api_key)
         end)
 
-      # Check if all succeeded
       case Enum.find(results, fn {status, _} -> status == :error end) do
         nil ->
           embeddings = Enum.map(results, fn {:ok, embedding} -> embedding end)
@@ -49,9 +44,11 @@ defmodule JumpstartAi.OpenAiEmbeddingModel do
       {"Content-Type", "application/json"}
     ]
 
-    # OpenAI expects a single string, not an array
+    # Clip text to 6500 characters to avoid OpenAI token limits
+    clipped_text = String.slice(text, 0, 6500)
+
     body = %{
-      "input" => text,
+      "input" => clipped_text,
       "model" => "text-embedding-3-small"
     }
 
