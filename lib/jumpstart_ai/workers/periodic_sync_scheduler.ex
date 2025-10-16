@@ -14,7 +14,8 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
 
   require Logger
   alias JumpstartAi.Accounts.User
-  alias JumpstartAi.Workers.{EmailSync, ContactSync, CalendarSync, HubSpotSync}
+  alias JumpstartAi.Workers.EmailSync
+  # alias JumpstartAi.Workers.{ContactSync, CalendarSync, HubSpotSync}
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -94,7 +95,6 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
         jobs
       end
 
-    # Insert all jobs for this user
     Enum.each(jobs, fn {worker_module, args, delay_seconds} ->
       case worker_module.new(args) |> Oban.insert(schedule_in: delay_seconds) do
         {:ok, _job} ->
@@ -118,56 +118,126 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
 
   defp after_sync_completed(user_id) do
     # After each sync, check for proactive opportunities by detecting actual changes
-    changes = detect_recent_changes(user_id)
+    # and enqueue individual ProactiveAgent jobs for each event
+    cutoff_time = DateTime.add(DateTime.utc_now(), -5, :minute)
 
-    # Only enqueue ProactiveAgent if there are actual changes
-    if map_size(changes) > 0 do
-      case JumpstartAi.Workers.ProactiveAgent.new(%{user_id: user_id, changes: changes})
-           |> Oban.insert(schedule_in: 180, queue: :proactive_actions) do
-        {:ok, _job} ->
-          Logger.debug(
-            "PeriodicSyncScheduler - Enqueued ProactiveAgent job for user #{user_id} with changes: #{inspect(Map.keys(changes))}"
-          )
+    jobs_enqueued = 0
 
-        {:error, error} ->
-          Logger.error(
-            "PeriodicSyncScheduler - Failed to enqueue ProactiveAgent job for user #{user_id}: #{inspect(error)}"
-          )
+    # Enqueue individual jobs for each new email
+    jobs_enqueued =
+      case get_recent_emails(user_id, cutoff_time) do
+        [] ->
+          jobs_enqueued
+
+        emails ->
+          Enum.each(emails, fn email ->
+            event_data = %{
+              "subject" => email.subject,
+              "sender_email" => email.from_email,
+              "sender_name" => email.from_name,
+              "snippet" => email.snippet,
+              "date" => email.date && DateTime.to_iso8601(email.date)
+            }
+
+            case JumpstartAi.Workers.ProactiveAgent.new(%{
+                   user_id: user_id,
+                   event_type: "new_email",
+                   event_data: event_data
+                 })
+                 |> Oban.insert(schedule_in: 180, queue: :proactive_actions) do
+              {:ok, _job} ->
+                Logger.debug(
+                  "PeriodicSyncScheduler - Enqueued ProactiveAgent job for new_email: #{email.subject}"
+                )
+
+              {:error, error} ->
+                Logger.error(
+                  "PeriodicSyncScheduler - Failed to enqueue ProactiveAgent job: #{inspect(error)}"
+                )
+            end
+          end)
+
+          jobs_enqueued + length(emails)
       end
+
+    # Enqueue individual jobs for each new contact
+    jobs_enqueued =
+      case get_recent_contacts(user_id, cutoff_time) do
+        [] ->
+          jobs_enqueued
+
+        contacts ->
+          Enum.each(contacts, fn contact ->
+            event_data = %{
+              "name" => contact.name,
+              "email" => contact.email
+            }
+
+            case JumpstartAi.Workers.ProactiveAgent.new(%{
+                   user_id: user_id,
+                   event_type: "new_contact",
+                   event_data: event_data
+                 })
+                 |> Oban.insert(schedule_in: 180, queue: :proactive_actions) do
+              {:ok, _job} ->
+                Logger.debug(
+                  "PeriodicSyncScheduler - Enqueued ProactiveAgent job for new_contact: #{contact.name}"
+                )
+
+              {:error, error} ->
+                Logger.error(
+                  "PeriodicSyncScheduler - Failed to enqueue ProactiveAgent job: #{inspect(error)}"
+                )
+            end
+          end)
+
+          jobs_enqueued + length(contacts)
+      end
+
+    # Enqueue individual jobs for each new calendar event
+    jobs_enqueued =
+      case get_recent_calendar_events(user_id, cutoff_time) do
+        [] ->
+          jobs_enqueued
+
+        events ->
+          Enum.each(events, fn event ->
+            event_data = %{
+              "summary" => event.summary,
+              "start_time" => event.start_time && DateTime.to_iso8601(event.start_time),
+              "attendees" => event.attendees
+            }
+
+            case JumpstartAi.Workers.ProactiveAgent.new(%{
+                   user_id: user_id,
+                   event_type: "new_calendar_event",
+                   event_data: event_data
+                 })
+                 |> Oban.insert(schedule_in: 180, queue: :proactive_actions) do
+              {:ok, _job} ->
+                Logger.debug(
+                  "PeriodicSyncScheduler - Enqueued ProactiveAgent job for new_calendar_event: #{event.summary}"
+                )
+
+              {:error, error} ->
+                Logger.error(
+                  "PeriodicSyncScheduler - Failed to enqueue ProactiveAgent job: #{inspect(error)}"
+                )
+            end
+          end)
+
+          jobs_enqueued + length(events)
+      end
+
+    if jobs_enqueued > 0 do
+      Logger.info(
+        "PeriodicSyncScheduler - Enqueued #{jobs_enqueued} ProactiveAgent jobs for user #{user_id}"
+      )
     else
       Logger.debug(
         "PeriodicSyncScheduler - No recent changes detected for user #{user_id}, skipping ProactiveAgent"
       )
     end
-  end
-
-  defp detect_recent_changes(user_id) do
-    # Detect changes from the last 5 minutes (slightly longer than sync interval)
-    cutoff_time = DateTime.add(DateTime.utc_now(), -5, :minute)
-    changes = %{}
-
-    # Check for new emails
-    changes =
-      case get_recent_emails(user_id, cutoff_time) do
-        [] -> changes
-        new_emails -> Map.put(changes, "new_emails", format_new_emails(new_emails))
-      end
-
-    # Check for new contacts
-    changes =
-      case get_recent_contacts(user_id, cutoff_time) do
-        [] -> changes
-        new_contacts -> Map.put(changes, "new_contacts", format_new_contacts(new_contacts))
-      end
-
-    # Check for new calendar events
-    changes =
-      case get_recent_calendar_events(user_id, cutoff_time) do
-        [] -> changes
-        new_events -> Map.put(changes, "new_calendar_events", format_new_events(new_events))
-      end
-
-    changes
   end
 
   defp get_recent_emails(user_id, cutoff_time) do
@@ -236,37 +306,6 @@ defmodule JumpstartAi.Workers.PeriodicSyncScheduler do
     rescue
       _ -> []
     end
-  end
-
-  defp format_new_emails(emails) do
-    Enum.map(emails, fn email ->
-      %{
-        "subject" => email.subject,
-        "sender_email" => email.from_email,
-        "sender_name" => email.from_name,
-        "snippet" => email.snippet,
-        "date" => email.date && DateTime.to_iso8601(email.date)
-      }
-    end)
-  end
-
-  defp format_new_contacts(contacts) do
-    Enum.map(contacts, fn contact ->
-      %{
-        "name" => contact.name,
-        "email" => contact.email
-      }
-    end)
-  end
-
-  defp format_new_events(events) do
-    Enum.map(events, fn event ->
-      %{
-        "summary" => event.summary,
-        "start_time" => event.start_time && DateTime.to_iso8601(event.start_time),
-        "attendees" => event.attendees
-      }
-    end)
   end
 
   defp user_has_valid_google_token?(user) do

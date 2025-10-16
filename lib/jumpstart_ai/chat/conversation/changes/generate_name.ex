@@ -1,6 +1,7 @@
 defmodule JumpstartAi.Chat.Conversation.Changes.GenerateName do
   use Ash.Resource.Change
   require Ash.Query
+  import Ash.Expr
 
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
@@ -12,7 +13,7 @@ defmodule JumpstartAi.Chat.Conversation.Changes.GenerateName do
 
       messages =
         JumpstartAi.Chat.Message
-        |> Ash.Query.filter(conversation_id == ^conversation.id)
+        |> Ash.Query.do_filter(expr(conversation_id == ^conversation.id))
         |> Ash.Query.limit(10)
         |> Ash.Query.select([:text, :source])
         |> Ash.Query.sort(inserted_at: :desc)

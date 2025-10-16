@@ -293,6 +293,11 @@ defmodule JumpstartAi.Accounts.Contact do
       filter expr(user_id == ^arg(:user_id))
     end
 
+    read :read_user do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
+    end
+
     read :get_by_external_id do
       argument :external_id, :string, allow_nil?: false
       argument :source, :string, allow_nil?: false
@@ -602,7 +607,7 @@ defmodule JumpstartAi.Accounts.Contact do
 
         case JumpstartAi.Accounts.Contact
              |> Ash.Query.for_read(:get_by_user, %{user_id: user_id})
-             |> Ash.Query.filter(expr(id == ^contact_id))
+             |> Ash.Query.do_filter(expr(id == ^contact_id))
              |> Ash.Query.select([
                :id,
                :firstname,
@@ -638,6 +643,103 @@ defmodule JumpstartAi.Accounts.Contact do
 
           {:error, reason} ->
             {:error, "Failed to get contact: #{inspect(reason)}"}
+        end
+      end
+    end
+
+    action :create_hubspot_contact, :map do
+      description """
+      Create a new contact in HubSpot CRM. This will create the contact both in HubSpot's API
+      and in the local database for syncing and semantic search.
+      """
+
+      argument :email, :string do
+        allow_nil? false
+        description "Contact's email address (required)"
+      end
+
+      argument :firstname, :string do
+        allow_nil? true
+        description "Contact's first name"
+      end
+
+      argument :lastname, :string do
+        allow_nil? true
+        description "Contact's last name"
+      end
+
+      argument :company, :string do
+        allow_nil? true
+        description "Contact's company name"
+      end
+
+      argument :phone, :string do
+        allow_nil? true
+        description "Contact's phone number"
+      end
+
+      argument :lifecycle_stage, :string do
+        allow_nil? true
+        description "Contact's lifecycle stage (e.g., 'lead', 'customer')"
+      end
+
+      run fn input, context ->
+        require Logger
+        user = context.actor
+
+        # Build contact data for HubSpot API
+        contact_data =
+          %{
+            "email" => input.arguments.email,
+            "firstname" => input.arguments[:firstname],
+            "lastname" => input.arguments[:lastname],
+            "company" => input.arguments[:company],
+            "phone" => input.arguments[:phone],
+            "lifecyclestage" => input.arguments[:lifecycle_stage]
+          }
+          |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+          |> Map.new()
+
+        Logger.info("Creating HubSpot contact with data: #{inspect(contact_data)}")
+
+        # Create contact in HubSpot
+        case JumpstartAi.HubSpotService.create_contact(user, contact_data) do
+          {:ok, hubspot_contact} ->
+            Logger.info("Successfully created HubSpot contact: #{inspect(hubspot_contact)}")
+
+            # Create local record using create_from_hubspot action
+            hubspot_data = Map.put(hubspot_contact, :user_id, user.id)
+
+            case JumpstartAi.Accounts.Contact
+                 |> Ash.Changeset.for_create(:create_from_hubspot, %{
+                   hubspot_data: hubspot_data
+                 })
+                 |> Ash.create(authorize?: false) do
+              {:ok, contact} ->
+                {:ok,
+                 %{
+                   "id" => contact.id,
+                   "name" =>
+                     "#{contact.firstname || ""} #{contact.lastname || ""}" |> String.trim(),
+                   "email" => contact.email,
+                   "company" => contact.company,
+                   "phone" => contact.phone,
+                   "lifecycle_stage" => contact.lifecycle_stage,
+                   "source" => "hubspot",
+                   "external_id" => contact.external_id
+                 }}
+
+              {:error, error} ->
+                Logger.error(
+                  "Failed to create local contact record after HubSpot creation: #{inspect(error)}"
+                )
+
+                {:error, "Failed to save contact locally: #{inspect(error)}"}
+            end
+
+          {:error, reason} ->
+            Logger.error("Failed to create HubSpot contact: #{inspect(reason)}")
+            {:error, "Failed to create HubSpot contact: #{inspect(reason)}"}
         end
       end
     end
@@ -681,6 +783,10 @@ defmodule JumpstartAi.Accounts.Contact do
     end
 
     bypass action(:get_contact_by_id) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:create_hubspot_contact) do
       authorize_if actor_present()
     end
 

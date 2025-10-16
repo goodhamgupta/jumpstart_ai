@@ -12,6 +12,8 @@ defmodule JumpstartAi.Chat.Task do
         action :continue
         queue :task_continuation
         lock_for_update? false
+        read_action :read
+        worker_read_action :read
         worker_module_name JumpstartAi.Workers.TaskContinuation
         scheduler_module_name JumpstartAi.Workers.TaskContinuationScheduler
         where expr(status == :waiting_for_response)
@@ -22,31 +24,6 @@ defmodule JumpstartAi.Chat.Task do
   postgres do
     table "tasks"
     repo JumpstartAi.Repo
-  end
-
-  attributes do
-    uuid_v7_primary_key :id
-
-    attribute :description, :string do
-      allow_nil? false
-      public? true
-    end
-
-    attribute :status, :atom do
-      constraints one_of: [:active, :waiting_for_response, :completed, :failed]
-      default :active
-      public? true
-    end
-
-    attribute :context, :map do
-      public? true
-    end
-
-    attribute :next_action, :string do
-      public? true
-    end
-
-    timestamps()
   end
 
   actions do
@@ -76,7 +53,11 @@ defmodule JumpstartAi.Chat.Task do
 
     read :active_for_conversation do
       argument :conversation_id, :uuid, allow_nil?: false
-      filter expr(conversation_id == ^arg(:conversation_id) and status in [:active, :waiting_for_response])
+
+      filter expr(
+               conversation_id == ^arg(:conversation_id) and
+                 status in [:active, :waiting_for_response]
+             )
     end
 
     read :active_for_current_user do
@@ -95,6 +76,31 @@ defmodule JumpstartAi.Chat.Task do
     publish_all :update, ["tasks", :user_id] do
       transform & &1.data
     end
+  end
+
+  attributes do
+    uuid_v7_primary_key :id
+
+    attribute :description, :string do
+      allow_nil? false
+      public? true
+    end
+
+    attribute :status, :atom do
+      constraints one_of: [:active, :waiting_for_response, :completed, :failed]
+      default :active
+      public? true
+    end
+
+    attribute :context, :map do
+      public? true
+    end
+
+    attribute :next_action, :string do
+      public? true
+    end
+
+    timestamps()
   end
 
   relationships do

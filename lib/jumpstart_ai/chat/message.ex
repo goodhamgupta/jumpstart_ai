@@ -14,8 +14,10 @@ defmodule JumpstartAi.Chat.Message do
         queue :chat_responses
         lock_for_update? false
         scheduler_cron false
+        read_action :read
+        worker_read_action :read
         worker_module_name JumpstartAi.Chat.Message.Workers.Respond
-        scheduler_module_name JumpstartAi.Chat.Message.Schedulers.Respond
+        # No scheduler_module_name needed when scheduler_cron is false
         where expr(needs_response)
       end
     end

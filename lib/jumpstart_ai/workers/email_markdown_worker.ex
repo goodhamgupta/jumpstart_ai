@@ -18,6 +18,7 @@ defmodule JumpstartAi.Workers.EmailMarkdownWorker do
 
   require Logger
   require Ash.Query
+  import Ash.Expr
   alias JumpstartAi.Accounts.Email
 
   @impl Oban.Worker
@@ -72,7 +73,7 @@ defmodule JumpstartAi.Workers.EmailMarkdownWorker do
   defp get_emails_for_processing(email_ids) do
     Email
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id in ^email_ids)
+    |> Ash.Query.do_filter(expr(id in ^email_ids))
     |> Ash.Query.select([
       :id,
       :subject,

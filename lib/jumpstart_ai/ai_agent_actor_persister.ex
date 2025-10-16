@@ -15,5 +15,8 @@ defmodule JumpstartAi.AiAgentActorPersister do
   # This allows you to set a default actor
   # in cases where no actor was present
   # when scheduling.
-  def lookup(nil), do: {:ok, nil}
+  def lookup(nil) do
+    # Return nil actor - the Respond change will fetch it from the conversation
+    {:ok, nil}
+  end
 end

@@ -370,6 +370,141 @@ defmodule JumpstartAi.Accounts.ContactNote do
         end
       end
     end
+
+    action :create_hubspot_note, :map do
+      description """
+      Create a note attached to a HubSpot contact. The note will be created both in HubSpot
+      and stored locally for semantic search.
+      """
+
+      argument :contact_id, :uuid do
+        allow_nil? false
+        description "The ID of the local contact to attach the note to"
+      end
+
+      argument :content, :string do
+        allow_nil? false
+        description "The content/body of the note"
+      end
+
+      argument :note_type, :string do
+        allow_nil? true
+        default "NOTE"
+        description "Type of note (default: NOTE)"
+      end
+
+      run fn input, context ->
+        require Logger
+        user = context.actor
+        contact_id = input.arguments.contact_id
+        content = input.arguments.content
+        note_type = input.arguments[:note_type] || "NOTE"
+
+        # Get the contact to find its external_id for HubSpot
+        case JumpstartAi.Accounts.Contact
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.do_filter(expr(id == ^contact_id))
+             |> Ash.Query.select([:external_id, :source, :user_id])
+             |> Ash.read_one(authorize?: false) do
+          {:ok, nil} ->
+            {:error, "Contact not found"}
+
+          {:ok, contact} ->
+            # Verify contact belongs to user
+            if contact.user_id != user.id do
+              {:error, "Unauthorized: Contact does not belong to user"}
+            else
+              # Only create in HubSpot if the contact is from HubSpot
+              if contact.source == "hubspot" do
+                Logger.info(
+                  "Creating HubSpot note for contact #{contact.external_id}: #{String.slice(content, 0, 50)}..."
+                )
+
+                case JumpstartAi.HubSpotService.create_note(user, contact.external_id, content) do
+                  {:ok, hubspot_note} ->
+                    Logger.info("Successfully created HubSpot note: #{inspect(hubspot_note)}")
+
+                    # Create local record
+                    note_data = %{
+                      contact_id: contact_id,
+                      hubspot_note_id: hubspot_note.hubspot_note_id,
+                      content: hubspot_note.content,
+                      note_type: note_type,
+                      created_at: hubspot_note.created_at,
+                      updated_at: hubspot_note.updated_at
+                    }
+
+                    case JumpstartAi.Accounts.ContactNote
+                         |> Ash.Changeset.for_create(:create_from_hubspot, %{
+                           hubspot_note_data: note_data
+                         })
+                         |> Ash.create(authorize?: false) do
+                      {:ok, note} ->
+                        {:ok,
+                         %{
+                           "id" => note.id,
+                           "contact_id" => note.contact_id,
+                           "content" => note.content,
+                           "note_type" => note.note_type,
+                           "source" => "hubspot",
+                           "created_at" =>
+                             note.external_created_at &&
+                               DateTime.to_iso8601(note.external_created_at)
+                         }}
+
+                      {:error, error} ->
+                        Logger.error(
+                          "Failed to create local note record after HubSpot creation: #{inspect(error)}"
+                        )
+
+                        {:error, "Failed to save note locally: #{inspect(error)}"}
+                    end
+
+                  {:error, reason} ->
+                    Logger.error("Failed to create HubSpot note: #{inspect(reason)}")
+                    {:error, "Failed to create HubSpot note: #{inspect(reason)}"}
+                end
+              else
+                # For non-HubSpot contacts, just create locally
+                Logger.info(
+                  "Creating local note for non-HubSpot contact #{contact_id}: #{String.slice(content, 0, 50)}..."
+                )
+
+                case JumpstartAi.Accounts.ContactNote
+                     |> Ash.Changeset.for_create(:create, %{
+                       contact_id: contact_id,
+                       source: "local",
+                       external_id: Ash.UUID.generate(),
+                       content: content,
+                       note_type: note_type,
+                       external_created_at: DateTime.utc_now(),
+                       external_updated_at: DateTime.utc_now()
+                     })
+                     |> Ash.create(authorize?: false) do
+                  {:ok, note} ->
+                    {:ok,
+                     %{
+                       "id" => note.id,
+                       "contact_id" => note.contact_id,
+                       "content" => note.content,
+                       "note_type" => note.note_type,
+                       "source" => "local",
+                       "created_at" =>
+                         note.external_created_at && DateTime.to_iso8601(note.external_created_at)
+                     }}
+
+                  {:error, error} ->
+                    Logger.error("Failed to create local note: #{inspect(error)}")
+                    {:error, "Failed to create note: #{inspect(error)}"}
+                end
+              end
+            end
+
+          {:error, reason} ->
+            {:error, "Failed to fetch contact: #{inspect(reason)}"}
+        end
+      end
+    end
   end
 
   policies do
@@ -394,6 +529,10 @@ defmodule JumpstartAi.Accounts.ContactNote do
     end
 
     bypass action(:list_contact_notes) do
+      authorize_if actor_present()
+    end
+
+    bypass action(:create_hubspot_note) do
       authorize_if actor_present()
     end
 

@@ -683,6 +683,11 @@ defmodule JumpstartAi.Accounts.User do
       public? true
     end
 
+    attribute :name, :string do
+      allow_nil? true
+      public? true
+    end
+
     attribute :confirmed_at, :utc_datetime_usec
 
     attribute :google_access_token, :string do

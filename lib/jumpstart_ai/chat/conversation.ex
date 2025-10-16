@@ -12,6 +12,8 @@ defmodule JumpstartAi.Chat.Conversation do
         action :generate_name
         queue :conversations
         lock_for_update? false
+        read_action :read
+        worker_read_action :read
         worker_module_name JumpstartAi.Chat.Message.Workers.NameConversation
         scheduler_module_name JumpstartAi.Chat.Message.Schedulers.NameConversation
         where expr(needs_title)

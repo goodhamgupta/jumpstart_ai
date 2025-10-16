@@ -358,23 +358,27 @@ defmodule JumpstartAi.Accounts.Email do
 
       run fn input, _context ->
         # Use a simpler approach without AshAi to avoid the KeyError issue
-        content = cond do
-          input.arguments.body_text && String.trim(input.arguments.body_text) != "" ->
-            input.arguments.body_text
-          input.arguments.body_html && String.trim(input.arguments.body_html) != "" ->
-            # Basic HTML to text conversion
-            input.arguments.body_html
-            |> String.replace(~r/<[^>]*>/, "")
-            |> String.replace(~r/&\w+;/, "")
-            |> String.trim()
-          input.arguments.snippet && String.trim(input.arguments.snippet) != "" ->
-            input.arguments.snippet
-          true ->
-            "[No content available]"
-        end
+        content =
+          cond do
+            input.arguments.body_text && String.trim(input.arguments.body_text) != "" ->
+              input.arguments.body_text
+
+            input.arguments.body_html && String.trim(input.arguments.body_html) != "" ->
+              # Basic HTML to text conversion
+              input.arguments.body_html
+              |> String.replace(~r/<[^>]*>/, "")
+              |> String.replace(~r/&\w+;/, "")
+              |> String.trim()
+
+            input.arguments.snippet && String.trim(input.arguments.snippet) != "" ->
+              input.arguments.snippet
+
+            true ->
+              "[No content available]"
+          end
 
         subject = input.arguments.subject || "No subject"
-        
+
         # Create simple markdown without using LLM for now to avoid the error
         markdown_content = """
         **#{subject}**

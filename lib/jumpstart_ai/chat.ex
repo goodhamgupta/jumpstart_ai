@@ -32,7 +32,9 @@ defmodule JumpstartAi.Chat do
       """
     end
 
-    tool :list_ongoing_instructions, JumpstartAi.Chat.OngoingInstruction, :active_for_current_user do
+    tool :list_ongoing_instructions,
+         JumpstartAi.Chat.OngoingInstruction,
+         :active_for_current_user do
       description """
       List all active ongoing instructions for the current user. Use this to see what
       proactive rules are currently in place.

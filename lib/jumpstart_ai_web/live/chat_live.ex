@@ -11,13 +11,25 @@ defmodule JumpstartAiWeb.ChatLive do
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h1 class="text-2xl font-semibold text-gray-900">Ask Anything</h1>
           <div class="flex items-center gap-3">
-            <.link navigate={~p"/data"} class="text-gray-400 hover:text-gray-600" aria-label="View Database">
+            <.link
+              navigate={~p"/data"}
+              class="text-gray-400 hover:text-gray-600"
+              aria-label="View Database"
+            >
               <.icon name="hero-circle-stack" class="w-6 h-6" />
             </.link>
-            <.link navigate={~p"/settings"} class="text-gray-400 hover:text-gray-600" aria-label="Settings">
+            <.link
+              navigate={~p"/settings"}
+              class="text-gray-400 hover:text-gray-600"
+              aria-label="Settings"
+            >
               <.icon name="hero-cog-6-tooth" class="w-6 h-6" />
             </.link>
-            <.link navigate={~p"/sign-out"} class="text-gray-400 hover:text-gray-600" aria-label="Sign out">
+            <.link
+              navigate={~p"/sign-out"}
+              class="text-gray-400 hover:text-gray-600"
+              aria-label="Sign out"
+            >
               <.icon name="hero-arrow-right-on-rectangle" class="w-6 h-6" />
             </.link>
             <.link navigate={~p"/"} class="text-gray-400 hover:text-gray-600" aria-label="Close">
@@ -25,7 +37,7 @@ defmodule JumpstartAiWeb.ChatLive do
             </.link>
           </div>
         </div>
-
+        
     <!-- Tabs -->
         <div class="flex items-center justify-between px-6 border-b border-gray-200">
           <div class="flex gap-8">
@@ -59,7 +71,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <.icon name="hero-plus" class="w-4 h-4" /> New thread
           </button>
         </div>
-
+        
     <!-- Context Display -->
         <div class="px-6 py-4 border-b border-gray-200">
           <div class="flex items-center justify-center gap-4 max-w-3xl mx-auto">
@@ -73,7 +85,7 @@ defmodule JumpstartAiWeb.ChatLive do
             <div class="flex-1 h-px bg-gray-200"></div>
           </div>
         </div>
-
+        
     <!-- Messages Area -->
         <div class="flex-1 overflow-y-auto px-6 py-8">
           <div :if={@active_tab == :chat}>
@@ -99,7 +111,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   </div>
                 </div>
               </div>
-
+              
     <!-- Thinking Indicator -->
               <div :if={@thinking} class="max-w-3xl mx-auto mt-6">
                 <div class="flex items-center gap-2 text-gray-500">
@@ -146,7 +158,7 @@ defmodule JumpstartAiWeb.ChatLive do
             </div>
           </div>
         </div>
-
+        
     <!-- Input Area -->
         <div class="border-t border-gray-200 px-6 py-4">
           <!-- Hidden speech recognition hook -->
@@ -174,7 +186,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   rows="3"
                   class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-400"
                 ></textarea>
-
+                
     <!-- Mentions Dropdown -->
                 <div
                   :if={@show_mentions && length(@mention_suggestions) > 0}
@@ -220,7 +232,7 @@ defmodule JumpstartAiWeb.ChatLive do
                   <.icon name="hero-arrow-up" class="w-5 h-5 text-white" />
                 </button>
               </div>
-
+              
     <!-- Action Buttons Row -->
               <div class="flex items-center justify-between mt-3">
                 <div class="flex items-center gap-2">
@@ -248,7 +260,6 @@ defmodule JumpstartAiWeb.ChatLive do
                       </option>
                     </select>
                   </div>
-
                 </div>
 
                 <button
@@ -258,7 +269,7 @@ defmodule JumpstartAiWeb.ChatLive do
                     "w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-black transition-colors",
                     @is_recording && "bg-red-100 hover:bg-red-200"
                   ]}
-                  title={@is_recording && "Stop recording" || "Start recording"}
+                  title={(@is_recording && "Stop recording") || "Start recording"}
                 >
                   <.icon
                     name="hero-microphone"

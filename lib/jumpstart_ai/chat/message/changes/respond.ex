@@ -1,6 +1,7 @@
 defmodule JumpstartAi.Chat.Message.Changes.Respond do
   use Ash.Resource.Change
   require Ash.Query
+  import Ash.Expr
 
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
@@ -63,13 +64,108 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
 
   @impl true
   def change(changeset, _opts, context) do
+    require Logger
+
     Ash.Changeset.before_transaction(changeset, fn changeset ->
       message = changeset.data
 
+      # Load the user from the conversation to use as actor
+      actor =
+        case context.actor do
+          nil ->
+            Logger.warning(
+              "Respond: context.actor is nil for message #{message.id}, fetching from conversation"
+            )
+
+            # Load conversation with user relationship
+            case JumpstartAi.Chat.Conversation
+                 |> Ash.Query.load(:user)
+                 |> Ash.get(message.conversation_id, authorize?: false) do
+              {:ok, %{user: user}} when not is_nil(user) ->
+                Logger.info(
+                  "Respond: Loaded user #{user.id} from conversation #{message.conversation_id}"
+                )
+
+                # Set metadata to mark as chat agent, same as AiAgentActorPersister
+                Ash.Resource.set_metadata(user, %{chat_agent?: true})
+
+              {:ok, conversation} ->
+                Logger.error(
+                  "Respond: Conversation #{message.conversation_id} loaded but user is nil or not loaded"
+                )
+
+                Logger.info(
+                  "Respond: Attempting direct user fetch with user_id: #{conversation.user_id}"
+                )
+
+                case JumpstartAi.Accounts.User
+                     |> Ash.get(conversation.user_id, authorize?: false) do
+                  {:ok, user} ->
+                    Logger.info("Respond: Successfully loaded user #{user.id} directly")
+                    # Set metadata to mark as chat agent
+                    Ash.Resource.set_metadata(user, %{chat_agent?: true})
+
+                  error ->
+                    Logger.error("Respond: Failed to load user directly: #{inspect(error)}")
+                    nil
+                end
+
+              error ->
+                Logger.error(
+                  "Respond: Failed to load conversation #{message.conversation_id}: #{inspect(error)}"
+                )
+
+                nil
+            end
+
+          %JumpstartAi.Accounts.User{} = actor ->
+            Logger.info("Respond: Using actor from context: #{actor.id}")
+            # Always set metadata to mark as chat agent, even when actor is already present
+            Ash.Resource.set_metadata(actor, %{chat_agent?: true})
+
+          actor when not is_nil(actor) ->
+            # Actor is not nil but also not a User struct - need to reload
+            Logger.warning(
+              "Respond: Actor from context is not a User struct (#{inspect(actor)}), reloading from conversation"
+            )
+
+            case JumpstartAi.Chat.Conversation
+                 |> Ash.Query.load(:user)
+                 |> Ash.get(message.conversation_id, authorize?: false) do
+              {:ok, %{user: user}} when not is_nil(user) ->
+                Logger.info("Respond: Reloaded user #{user.id} from conversation")
+                Ash.Resource.set_metadata(user, %{chat_agent?: true})
+
+              {:ok, conversation} ->
+                case JumpstartAi.Accounts.User
+                     |> Ash.get(conversation.user_id, authorize?: false) do
+                  {:ok, user} ->
+                    Logger.info("Respond: Reloaded user #{user.id} directly")
+                    Ash.Resource.set_metadata(user, %{chat_agent?: true})
+
+                  error ->
+                    Logger.error("Respond: Failed to reload user: #{inspect(error)}")
+                    nil
+                end
+
+              error ->
+                Logger.error("Respond: Failed to reload conversation: #{inspect(error)}")
+                nil
+            end
+
+          _ ->
+            Logger.error("Respond: Unexpected actor value in context")
+            nil
+        end
+
+      unless actor do
+        raise "Cannot proceed with respond: actor is nil for message #{message.id}"
+      end
+
       messages =
         JumpstartAi.Chat.Message
-        |> Ash.Query.filter(conversation_id == ^message.conversation_id)
-        |> Ash.Query.filter(id != ^message.id)
+        |> Ash.Query.do_filter(expr(conversation_id == ^message.conversation_id))
+        |> Ash.Query.do_filter(expr(id != ^message.id))
         |> Ash.Query.select([:text, :source, :tool_calls, :tool_results, :reasoning_content])
         |> Ash.Query.sort(inserted_at: :desc)
         |> Ash.read!()
@@ -172,13 +268,15 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
           :list_calendar_events,
           :search_contacts,
           :get_contact_by_id,
+          :create_hubspot_contact,
+          :create_contact_note,
           :create_task,
           :update_task_status,
           :list_active_tasks,
           :create_ongoing_instruction,
           :list_ongoing_instructions
         ],
-        actor: context.actor
+        actor: actor
       )
       |> LLMChain.add_callback(%{
         on_llm_new_delta: fn _chain, deltas ->

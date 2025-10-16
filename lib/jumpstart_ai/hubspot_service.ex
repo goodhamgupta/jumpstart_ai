@@ -191,6 +191,63 @@ defmodule JumpstartAi.HubSpotService do
   end
 
   @doc """
+  Creates a note associated with a contact in HubSpot.
+  """
+  def create_note(user, contact_external_id, note_content) do
+    with {:ok, access_token} <- get_valid_access_token(user) do
+      url = "#{@base_url}/crm/v3/objects/notes"
+
+      headers = [
+        {"Authorization", "Bearer #{access_token}"},
+        {"Content-Type", "application/json"}
+      ]
+
+      body =
+        Jason.encode!(%{
+          "properties" => %{
+            "hs_note_body" => note_content
+          },
+          "associations" => [
+            %{
+              "to" => %{
+                "id" => contact_external_id
+              },
+              "types" => [
+                %{
+                  "associationCategory" => "HUBSPOT_DEFINED",
+                  "associationTypeId" => 202
+                }
+              ]
+            }
+          ]
+        })
+
+      case HTTPoison.post(url, body, headers) do
+        {:ok, %HTTPoison.Response{status_code: 201, body: response_body}} ->
+          case Jason.decode(response_body) do
+            {:ok, note} ->
+              {:ok, normalize_note(note)}
+
+            {:error, error} ->
+              Logger.error("HubSpot - Failed to parse create note response: #{inspect(error)}")
+              {:error, :parse_error}
+          end
+
+        {:ok, %HTTPoison.Response{status_code: status_code, body: response_body}} ->
+          Logger.error(
+            "HubSpot - Note creation failed with status #{status_code}: #{response_body}"
+          )
+
+          {:error, {:api_error, status_code}}
+
+        {:error, error} ->
+          Logger.error("HubSpot - Network error creating note: #{inspect(error)}")
+          {:error, :network_error}
+      end
+    end
+  end
+
+  @doc """
   Searches for contacts in HubSpot by query.
   """
   def search_contacts(user, query, opts \\ []) do

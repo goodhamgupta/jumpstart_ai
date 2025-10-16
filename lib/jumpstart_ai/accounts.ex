@@ -90,10 +90,35 @@ defmodule JumpstartAi.Accounts do
       """
     end
 
-    tool :find_contact, JumpstartAi.Accounts.Contact, :find_contact do
+    tool :search_contacts, JumpstartAi.Accounts.Contact, :search_contacts do
       description """
-      Find contacts by searching name, email, or company. Uses exact matching and wildcards to locate specific contacts.
-      Use this when you need to find a specific contact based on partial information like first name, last name, email address, or company name.
+      Unified contact search that tries both field-based and semantic search automatically.
+      First performs exact field matching on name, email, and company, then falls back to semantic search if few results found.
+      Use this when you need to search for contacts and aren't sure of the exact match.
+      """
+    end
+
+    tool :get_contact_by_id, JumpstartAi.Accounts.Contact, :get_contact_by_id do
+      description """
+      Gets a single contact by ID. Returns full contact details including notes summary if found.
+      Use this when you have a specific contact_id from a mention or previous search.
+      """
+    end
+
+    tool :create_hubspot_contact, JumpstartAi.Accounts.Contact, :create_hubspot_contact do
+      description """
+      Create a new contact in HubSpot CRM. This will create the contact both in HubSpot's API
+      and in the local database for syncing and semantic search.
+      Use this when you need to add a new contact to HubSpot, for example when an unknown sender emails.
+      """
+    end
+
+    tool :create_contact_note, JumpstartAi.Accounts.ContactNote, :create_hubspot_note do
+      description """
+      Add a note to a contact (works with HubSpot contacts or local contacts).
+      For HubSpot contacts, the note will be created in HubSpot and synced locally.
+      For non-HubSpot contacts, the note will be stored locally only.
+      Use this to record information about interactions with contacts.
       """
     end
   end

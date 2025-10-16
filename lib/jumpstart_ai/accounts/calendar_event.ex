@@ -84,6 +84,11 @@ defmodule JumpstartAi.Accounts.CalendarEvent do
       filter expr(user_id == ^arg(:user_id))
     end
 
+    read :read_user do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
+    end
+
     read :find_by_time_range do
       description "Find events within a time range"
       argument :user_id, :uuid, allow_nil?: false
