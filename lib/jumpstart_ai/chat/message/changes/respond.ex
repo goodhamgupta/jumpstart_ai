@@ -198,9 +198,11 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
         - ALWAYS use draft_email first when composing any email
         - When user says "send" or explicitly requests sending, immediately send the draft using send_email_with_draft
         - When drafting without explicit send instruction, show draft details and ask for confirmation
+        - EXCEPTION: When scheduling appointments/calendar events, automatically send the notification email after drafting (don't wait for confirmation)
         - Example workflows:
           * User: "Draft an email to John about the meeting" -> Draft and ask for confirmation
           * User: "Send an email to John about the meeting" -> Draft and immediately send
+          * User: "Schedule appointment with Sara Smith" -> Create event, draft notification email, and immediately send
           * User: "Send" (referring to existing draft) -> Immediately send the draft
         - Use list_drafts to help users review and manage their pending emails
         - Use send_email_with_draft (with draft_id) as the ONLY way to send emails
@@ -215,7 +217,7 @@ defmodule JumpstartAi.Chat.Message.Changes.Respond do
 
         EXAMPLES:
         User: "Schedule appointment with Sara Smith"
-        You: Create task, find Sara in contacts/HubSpot, draft scheduling email, mark task as waiting for response
+        You: Create task, find Sara in contacts/HubSpot, create calendar event, draft notification email, send the email immediately, mark task as complete
 
         User: "When unknown senders email me, create HubSpot contact"
         You: Create ongoing instruction with trigger conditions
